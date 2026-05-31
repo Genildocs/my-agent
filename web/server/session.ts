@@ -1,17 +1,42 @@
-import type { WSClient } from "./types.js";
-import { AgentSession } from "./ai-client.js";
+import { randomUUID } from "node:crypto";
+import type { WSClient, ChatMessage } from "./types.js";
+import { AgentSession, type ImagePart } from "./ai-client.js";
 import { chatStore } from "./chat-store.js";
 
 // Session manages a single chat conversation with a long-lived agent
 export class Session {
   public readonly chatId: string;
+  public readonly model: string;
   private subscribers: Set<WSClient> = new Set();
   private agentSession: AgentSession;
   private isListening = false;
+  // histórico a injetar na 1ª mensagem (quando a sessão é (re)criada com conversa prévia)
+  private pendingHistory?: ChatMessage[];
+  // aprovações de tool pendentes (human-in-the-loop via canUseTool)
+  private pendingApprovals = new Map<string, (ok: boolean) => void>();
 
-  constructor(chatId: string) {
+  constructor(chatId: string, model = "claude-sonnet-4-6", history?: ChatMessage[]) {
     this.chatId = chatId;
-    this.agentSession = new AgentSession();
+    this.model = model;
+    this.agentSession = new AgentSession(model, (req) => this.requestApproval(req));
+    this.pendingHistory = history && history.length ? history : undefined;
+  }
+
+  // Pergunta ao usuário (browser) e espera a resposta antes de liberar a tool.
+  private requestApproval(req: { tool: string; input: any }): Promise<boolean> {
+    return new Promise((resolve) => {
+      const id = randomUUID();
+      this.pendingApprovals.set(id, resolve);
+      this.broadcast({ type: "approval_request", id, tool: req.tool, input: req.input, chatId: this.chatId });
+    });
+  }
+
+  respondApproval(id: string, approved: boolean) {
+    const resolve = this.pendingApprovals.get(id);
+    if (resolve) {
+      resolve(approved);
+      this.pendingApprovals.delete(id);
+    }
   }
 
   // Start listening to agent output (call once)
@@ -30,24 +55,31 @@ export class Session {
   }
 
   // Send a user message to the agent
-  sendMessage(content: string) {
-    // Store user message
-    chatStore.addMessage(this.chatId, {
-      role: "user",
-      content,
-    });
+  sendMessage(content: string, images?: ImagePart[]) {
+    // Store user message (texto; a imagem fica só na sessão atual)
+    chatStore.addMessage(this.chatId, { role: "user", content });
 
-    // Broadcast user message to subscribers
+    // Broadcast user message to subscribers (texto original, sem o contexto injetado)
     this.broadcast({
       type: "user_message",
       content,
+      hasImages: !!images?.length,
       chatId: this.chatId,
     });
 
-    // Send to agent first (this starts the session if needed)
-    this.agentSession.sendMessage(content);
+    // Na 1ª mensagem após (re)criar com histórico, prepend o contexto para o agente.
+    let toAgent = content;
+    if (this.pendingHistory) {
+      const ctx = this.pendingHistory
+        .map((m) => `${m.role === "user" ? "Usuário" : "Assistente"}: ${m.content}`)
+        .join("\n");
+      toAgent = `[Contexto da conversa até aqui:\n${ctx}\n]\n\n${content}`;
+      this.pendingHistory = undefined;
+    }
 
-    // Start listening if not already
+    // Send to agent (texto + imagens) — inicia a sessão se necessário
+    this.agentSession.sendMessage(toAgent, images);
+
     if (!this.isListening) {
       this.startListening();
     }
@@ -134,6 +166,11 @@ export class Session {
       error,
       chatId: this.chatId,
     });
+  }
+
+  // Interrompe o turno atual (botão parar)
+  async stop() {
+    await this.agentSession.interrupt();
   }
 
   // Close the session

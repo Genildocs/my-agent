@@ -6,3 +6,9 @@ data/
 
 # screenshots da sessão
 *.png
+
+# identidade do recall (contém email/nome — não versionar)
+.recall/
+
+# docs de terceiros (Anthropic) — não redistribuir
+sources/

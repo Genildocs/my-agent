@@ -35,10 +35,17 @@ app.get("/", (req, res) => {
 // Session management
 const sessions: Map<string, Session> = new Map();
 
-function getOrCreateSession(chatId: string): Session {
+function getOrCreateSession(chatId: string, model?: string): Session {
   let session = sessions.get(chatId);
+  // trocou de modelo -> recria a sessão (novo contexto; histórico fica no SQLite)
+  if (session && model && session.model !== model) {
+    session.close();
+    sessions.delete(chatId);
+    session = undefined;
+  }
   if (!session) {
-    session = new Session(chatId);
+    // injeta o histórico (do SQLite) para o agente manter o contexto ao (re)criar
+    session = new Session(chatId, model, chatStore.getMessages(chatId));
     sessions.set(chatId, session);
   }
   return session;
@@ -100,6 +107,17 @@ app.get("/api/git/diff", async (_req, res) => {
   }
 });
 
+// Lista os arquivos rastreados do projeto (para o autocomplete @). git ls-files
+// já respeita o .gitignore (não traz node_modules, .env, etc).
+app.get("/api/files", async (_req, res) => {
+  try {
+    const { stdout } = await execFileP("git", ["ls-files"], { cwd: process.cwd(), maxBuffer: 8e6 });
+    res.json({ files: stdout.split("\n").filter(Boolean) });
+  } catch (e) {
+    res.json({ files: [], error: (e as Error).message });
+  }
+});
+
 // Create HTTP server
 const server = createServer(app);
 
@@ -154,9 +172,21 @@ wss.on("connection", (ws: WSClient) => {
         }
 
         case "chat": {
-          const session = getOrCreateSession(message.chatId);
+          const session = getOrCreateSession(message.chatId, message.model);
           session.subscribe(ws);
-          session.sendMessage(message.content);
+          session.sendMessage(message.content, message.images);
+          break;
+        }
+
+        case "stop": {
+          const session = sessions.get(message.chatId);
+          if (session) session.stop();
+          break;
+        }
+
+        case "approval": {
+          const session = sessions.get(message.chatId);
+          if (session) session.respondApproval(message.id, message.approved);
           break;
         }
 

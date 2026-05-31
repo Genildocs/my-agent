@@ -4,6 +4,8 @@ import { ChatList } from "./components/ChatList";
 import { ChatWindow } from "./components/ChatWindow";
 import { ToolPanel, type PanelEvent } from "./components/ToolPanel";
 import { GitPanel } from "./components/GitPanel";
+import { TaskPanel, type Todo } from "./components/TaskPanel";
+import { ApprovalModal, type ApprovalRequest } from "./components/ApprovalModal";
 
 interface Chat {
   id: string;
@@ -21,6 +23,24 @@ interface Message {
   toolInput?: Record<string, any>;
 }
 
+// status legível do que o agente está fazendo agora (a partir do nome da tool)
+function statusForTool(name: string, input: any = {}): string {
+  const base = (p?: string) => (p ? p.split("/").pop() : "");
+  if (name.startsWith("mcp__consultor__")) return "Consultando o guardião...";
+  switch (name) {
+    case "Read": return `Lendo ${base(input.file_path)}...`;
+    case "Edit":
+    case "Write":
+    case "MultiEdit": return `Editando ${base(input.file_path)}...`;
+    case "Bash": return "Rodando comando...";
+    case "Glob":
+    case "Grep": return "Procurando no código...";
+    case "TodoWrite": return "Planejando as etapas...";
+    case "ToolSearch": return "Carregando ferramentas...";
+    default: return `Usando ${name}...`;
+  }
+}
+
 // Use relative URLs - Vite will proxy to the backend
 const API_BASE = "/api";
 const WS_URL = `ws://${window.location.hostname}:3001/ws`;
@@ -31,8 +51,12 @@ export default function App() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [toolEvents, setToolEvents] = useState<PanelEvent[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [rightTab, setRightTab] = useState<"tools" | "git">("tools");
+  const [rightTab, setRightTab] = useState<"tools" | "tasks" | "git">("tools");
   const [git, setGit] = useState({ diff: "", status: "" });
+  const [todos, setTodos] = useState<Todo[]>([]);
+  const [model, setModel] = useState("claude-sonnet-4-6");
+  const [agentStatus, setAgentStatus] = useState("Pensando...");
+  const [approval, setApproval] = useState<ApprovalRequest | null>(null);
 
   const fetchGitDiff = useCallback(async () => {
     try {
@@ -69,11 +93,17 @@ export default function App() {
             timestamp: new Date().toISOString(),
           },
         ]);
-        setIsLoading(false);
+        setAgentStatus("Escrevendo...");
         break;
 
       case "tool_use":
-        // Atividade de tools vai para o painel lateral (não polui a conversa).
+        setAgentStatus(statusForTool(message.toolName, message.toolInput));
+        // TodoWrite = plano do agente -> vai pro painel de Tarefas (substitui a lista).
+        if (message.toolName === "TodoWrite") {
+          setTodos(message.toolInput?.todos || []);
+          break;
+        }
+        // demais tools vão para o painel de atividade (não polui a conversa).
         setToolEvents((prev) => [
           ...prev,
           {
@@ -87,6 +117,7 @@ export default function App() {
         break;
 
       case "prefetch":
+        setAgentStatus("Ancorando nas fontes...");
         setToolEvents((prev) => [
           ...prev,
           {
@@ -120,12 +151,24 @@ export default function App() {
         fetchGitDiff();
         break;
 
+      case "approval_request":
+        setAgentStatus("Aguardando sua confirmação...");
+        setApproval({ id: message.id, tool: message.tool, input: message.input });
+        break;
+
       case "error":
         console.error("Server error:", message.error);
         setIsLoading(false);
         break;
     }
   }, [fetchGitDiff]);
+
+  const respondApproval = (approved: boolean) => {
+    if (approval && selectedChatId) {
+      sendJsonMessage({ type: "approval", chatId: selectedChatId, id: approval.id, approved });
+    }
+    setApproval(null);
+  };
 
   const { sendJsonMessage, readyState, lastJsonMessage } = useWebSocket(WS_URL, {
     shouldReconnect: () => true,
@@ -187,14 +230,21 @@ export default function App() {
     setSelectedChatId(chatId);
     setMessages([]);
     setToolEvents([]);
+    setTodos([]);
+    setApproval(null);
     setIsLoading(false);
 
     // Subscribe to chat via WebSocket
     sendJsonMessage({ type: "subscribe", chatId });
   };
 
+  // Interrompe o turno atual do agente
+  const handleStop = () => {
+    if (selectedChatId) sendJsonMessage({ type: "stop", chatId: selectedChatId });
+  };
+
   // Send a message
-  const handleSendMessage = (content: string) => {
+  const handleSendMessage = (content: string, images?: { media_type: string; data: string }[]) => {
     if (!selectedChatId || !isConnected) return;
 
     // Add message optimistically
@@ -203,18 +253,21 @@ export default function App() {
       {
         id: crypto.randomUUID(),
         role: "user",
-        content,
+        content: content || (images?.length ? "🖼️ (imagem)" : ""),
         timestamp: new Date().toISOString(),
       },
     ]);
 
     setIsLoading(true);
+    setAgentStatus("Pensando...");
 
     // Send via WebSocket
     sendJsonMessage({
       type: "chat",
       content,
       chatId: selectedChatId,
+      model,
+      images,
     });
   };
 
@@ -243,6 +296,10 @@ export default function App() {
         isConnected={isConnected}
         isLoading={isLoading}
         onSendMessage={handleSendMessage}
+        onStop={handleStop}
+        model={model}
+        onModelChange={setModel}
+        agentStatus={agentStatus}
       />
 
       {/* Painel direito: abas Tools (ao vivo) / Git (diff das edições) */}
@@ -258,6 +315,14 @@ export default function App() {
               🔧 Tools <span className="text-xs text-gray-400">{toolEvents.length}</span>
             </button>
             <button
+              onClick={() => setRightTab("tasks")}
+              className={`flex-1 px-3 py-2 font-medium ${
+                rightTab === "tasks" ? "bg-white text-gray-900 border-b-2 border-blue-500" : "text-gray-500 hover:bg-gray-100"
+              }`}
+            >
+              📋 Tarefas {todos.length > 0 && <span className="text-xs text-gray-400">{todos.length}</span>}
+            </button>
+            <button
               onClick={() => {
                 setRightTab("git");
                 fetchGitDiff();
@@ -270,13 +335,16 @@ export default function App() {
             </button>
           </div>
           <div className="flex-1 min-h-0">
-            {rightTab === "tools" ? (
-              <ToolPanel events={toolEvents} />
-            ) : (
-              <GitPanel diff={git.diff} status={git.status} onRefresh={fetchGitDiff} />
-            )}
+            {rightTab === "tools" && <ToolPanel events={toolEvents} />}
+            {rightTab === "tasks" && <TaskPanel todos={todos} />}
+            {rightTab === "git" && <GitPanel diff={git.diff} status={git.status} onRefresh={fetchGitDiff} />}
           </div>
         </div>
+      )}
+
+      {/* modal de aprovação (human-in-the-loop) */}
+      {approval && (
+        <ApprovalModal req={approval} onApprove={() => respondApproval(true)} onReject={() => respondApproval(false)} />
       )}
     </div>
   );

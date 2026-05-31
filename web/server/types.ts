@@ -28,6 +28,8 @@ export interface WSChatMessage {
   type: "chat";
   content: string;
   chatId: string;
+  model?: string;
+  images?: { media_type: string; data: string }[];
 }
 
 export interface WSSubscribeMessage {
@@ -35,4 +37,16 @@ export interface WSSubscribeMessage {
   chatId: string;
 }
 
-export type IncomingWSMessage = WSChatMessage | WSSubscribeMessage;
+export interface WSStopMessage {
+  type: "stop";
+  chatId: string;
+}
+
+export interface WSApprovalMessage {
+  type: "approval";
+  chatId: string;
+  id: string;
+  approved: boolean;
+}
+
+export type IncomingWSMessage = WSChatMessage | WSSubscribeMessage | WSStopMessage | WSApprovalMessage;
