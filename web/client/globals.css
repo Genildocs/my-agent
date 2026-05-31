@@ -1,0 +1,18 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* code blocks: deixa o theme do highlight.js (github-dark) controlar cor/fundo;
+   o <pre> do prose fica neutro e o <code class="hljs"> ganha padding/rounded. */
+.prose pre {
+  background: transparent;
+  padding: 0;
+}
+.prose pre code.hljs {
+  display: block;
+  padding: 0.9rem 1rem;
+  border-radius: 0.5rem;
+  overflow-x: auto;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}

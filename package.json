@@ -1,0 +1,48 @@
+{
+  "type": "module",
+  "scripts": {
+    "ask": "tsx --env-file=.env src/agents/guardian-of-library.ts",
+    "index": "tsx --env-file=.env src/rag/index.ts",
+    "orquestrator": "tsx --env-file=.env src/agents/orquestrator.ts",
+    "review": "tsx --env-file=.env src/agents/reviewer.ts",
+    "chat": "tsx --env-file=.env src/agents/chat.ts",
+    "web": "concurrently -n server,client -c green,cyan \"npm:web:server\" \"npm:web:client\"",
+    "web:server": "tsx --env-file=.env web/server/server.ts",
+    "web:client": "cd web && vite"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.3.158",
+    "@neondatabase/serverless": "^1.1.0",
+    "better-sqlite3": "^12.10.0",
+    "cors": "^2.8.6",
+    "express": "^4.22.2",
+    "highlight.js": "^11.11.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-markdown": "^10.1.0",
+    "react-use-websocket": "^4.13.0",
+    "rehype-highlight": "^7.0.2",
+    "remark-gfm": "^4.0.1",
+    "uuid": "^10.0.0",
+    "ws": "^8.21.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@tailwindcss/typography": "^0.5.19",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^4.17.25",
+    "@types/node": "^25.9.1",
+    "@types/react": "^18.3.29",
+    "@types/react-dom": "^18.3.7",
+    "@types/uuid": "^10.0.0",
+    "@types/ws": "^8.18.1",
+    "@vitejs/plugin-react": "^4.7.0",
+    "autoprefixer": "^10.5.0",
+    "concurrently": "^9.2.1",
+    "postcss": "^8.5.15",
+    "tailwindcss": "^3.4.19",
+    "tsx": "^4.22.3",
+    "vite": "^5.4.21"
+  }
+}
