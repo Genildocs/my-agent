@@ -1,0 +1,20 @@
+{
+  // Servidor + libs (rodam via tsx, ESM NodeNext). O cliente tem o seu próprio
+  // tsconfig (web/client) porque é compilado pelo Vite (resolução de bundler).
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "types": ["node"]
+  },
+  "include": ["src", "web/server"],
+  "exclude": ["node_modules", "web/dist", "dist"]
+}

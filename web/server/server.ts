@@ -6,12 +6,15 @@ import { promisify } from "node:util";
 
 const execFileP = promisify(execFile);
 import { createServer } from "http";
+import { statSync } from "node:fs";
 import { WebSocketServer, WebSocket } from "ws";
 import path from "path";
 import { fileURLToPath } from "url";
 import type { WSClient, IncomingWSMessage } from "./types.js";
 import { chatStore } from "./chat-store.js";
 import { Session } from "./session.js";
+import { UPLOADS_DIR } from "./uploads.js";
+import { enhancePrompt } from "./enhance.js";
 import { logEvents } from "../../src/core/logger.ts";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -27,6 +30,9 @@ app.use(express.json());
 // Serve static files from client directory
 app.use("/client", express.static(path.join(__dirname, "../client")));
 
+// Serve as imagens coladas no chat (web/uploads)
+app.use("/uploads", express.static(UPLOADS_DIR));
+
 // Serve index.html at root
 app.get("/", (req, res) => {
   res.sendFile(path.join(__dirname, "../client/index.html"));
@@ -35,17 +41,36 @@ app.get("/", (req, res) => {
 // Session management
 const sessions: Map<string, Session> = new Map();
 
-function getOrCreateSession(chatId: string, model?: string): Session {
+// O cwd vai direto pro spawn do claude no Agent SDK, que exige um DIRETÓRIO
+// existente. Se vier um arquivo, usamos a pasta dele; se não existir, recusamos
+// com mensagem clara (senão o SDK só diz "exists but failed to launch").
+function resolveCwd(cwd?: string): string | undefined {
+  if (!cwd) return undefined;
+  let st;
+  try {
+    st = statSync(cwd);
+  } catch {
+    throw new Error(`Diretório não encontrado: ${cwd}`);
+  }
+  if (st.isDirectory()) return cwd;
+  if (st.isFile()) return path.dirname(cwd);
+  throw new Error(`Caminho inválido como diretório de trabalho: ${cwd}`);
+}
+
+function getOrCreateSession(chatId: string, model?: string, cwd?: string, effort?: string): Session {
   let session = sessions.get(chatId);
-  // trocou de modelo -> recria a sessão (novo contexto; histórico fica no SQLite)
-  if (session && model && session.model !== model) {
+  // trocou de modelo, cwd ou effort -> recria a sessão (novo contexto; histórico fica no SQLite)
+  const cwdChanged = cwd && session && session.cwd !== cwd;
+  const modelChanged = model && session && session.model !== model;
+  const effortChanged = session && (session.effort ?? undefined) !== (effort ?? undefined);
+  if (session && (modelChanged || cwdChanged || effortChanged)) {
     session.close();
     sessions.delete(chatId);
     session = undefined;
   }
   if (!session) {
     // injeta o histórico (do SQLite) para o agente manter o contexto ao (re)criar
-    session = new Session(chatId, model, chatStore.getMessages(chatId));
+    session = new Session(chatId, model, chatStore.getMessages(chatId), cwd, effort);
     sessions.set(chatId, session);
   }
   return session;
@@ -69,6 +94,15 @@ app.get("/api/chats/:id", (req, res) => {
   if (!chat) {
     return res.status(404).json({ error: "Chat not found" });
   }
+  res.json(chat);
+});
+
+// REST API: Rename chat
+app.patch("/api/chats/:id", (req, res) => {
+  const title = String((req.body?.title ?? "")).trim();
+  if (!title) return res.status(400).json({ error: "title obrigatório" });
+  const chat = chatStore.updateChatTitle(req.params.id, title.slice(0, 80));
+  if (!chat) return res.status(404).json({ error: "Chat not found" });
   res.json(chat);
 });
 
@@ -97,13 +131,43 @@ app.get("/api/chats/:id/messages", (req, res) => {
 app.get("/api/git/diff", async (_req, res) => {
   const cwd = process.cwd();
   try {
-    const [diff, status] = await Promise.all([
+    const [diff, status, numstat] = await Promise.all([
       execFileP("git", ["diff", "--relative", "--", "."], { cwd, maxBuffer: 8e6 }),
       execFileP("git", ["status", "--porcelain", "--", "."], { cwd, maxBuffer: 1e6 }),
+      // contagem +/- por arquivo (inclui modificados rastreados)
+      execFileP("git", ["diff", "--numstat", "--relative", "--", "."], { cwd, maxBuffer: 1e6 }),
     ]);
-    res.json({ diff: diff.stdout, status: status.stdout });
+    res.json({ diff: diff.stdout, status: status.stdout, numstat: numstat.stdout });
   } catch (e) {
-    res.json({ diff: "", status: "", error: (e as Error).message });
+    res.json({ diff: "", status: "", numstat: "", error: (e as Error).message });
+  }
+});
+
+// Prompt enhancer (✨): reescreve o rascunho do usuário num prompt melhor para o my-agent.
+app.post("/api/enhance", async (req, res) => {
+  const text = String(req.body?.text ?? "").trim();
+  if (!text) return res.status(400).json({ error: "texto vazio" });
+  try {
+    // few-shot: últimos pares aprovados (rascunho -> enviado) para o enhancer evoluir
+    const examples = chatStore.recentPromptExamples(5);
+    const out = await enhancePrompt(text, examples);
+    res.json(out);
+  } catch (e) {
+    res.status(500).json({ error: (e as Error).message });
+  }
+});
+
+// Info do projeto para o empty state (cwd, branch, última modificação do repo).
+app.get("/api/project/info", async (_req, res) => {
+  const cwd = process.cwd();
+  try {
+    const [branch, lastCommit] = await Promise.all([
+      execFileP("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd }).then((r) => r.stdout.trim()).catch(() => ""),
+      execFileP("git", ["log", "-1", "--format=%cr"], { cwd }).then((r) => r.stdout.trim()).catch(() => ""),
+    ]);
+    res.json({ cwd, branch, lastCommit });
+  } catch (e) {
+    res.json({ cwd, branch: "", lastCommit: "", error: (e as Error).message });
   }
 });
 
@@ -172,9 +236,25 @@ wss.on("connection", (ws: WSClient) => {
         }
 
         case "chat": {
-          const session = getOrCreateSession(message.chatId, message.model);
+          let safeCwd: string | undefined;
+          try {
+            safeCwd = resolveCwd(message.cwd);
+          } catch (e) {
+            ws.send(JSON.stringify({ type: "error", error: (e as Error).message }));
+            break;
+          }
+          const session = getOrCreateSession(message.chatId, message.model, safeCwd, message.effort);
           session.subscribe(ws);
-          session.sendMessage(message.content, message.images);
+          try {
+            // saveImages (em sendMessage) pode lançar erro descritivo (tipo/tamanho/IO);
+            // propaga a mensagem REAL em vez de cair no "Invalid message format" genérico.
+            session.sendMessage(message.content, message.images);
+          } catch (e) {
+            ws.send(JSON.stringify({ type: "error", error: (e as Error).message }));
+            break;
+          }
+          // se a mensagem veio do ✨, registra o par (rascunho -> enviado) p/ o enhancer aprender
+          if (message.enhancedFrom) chatStore.addPromptExample(message.enhancedFrom, message.content);
           break;
         }
 
@@ -187,6 +267,12 @@ wss.on("connection", (ws: WSClient) => {
         case "approval": {
           const session = sessions.get(message.chatId);
           if (session) session.respondApproval(message.id, message.approved);
+          break;
+        }
+
+        case "command": {
+          const session = sessions.get(message.chatId);
+          if (session) session.runCommand(message.name);
           break;
         }
 

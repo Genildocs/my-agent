@@ -2,6 +2,7 @@
 node_modules
 logs/
 web/dist
+web/uploads/
 data/
 
 # screenshots da sessão

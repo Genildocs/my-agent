@@ -18,17 +18,23 @@ export interface Chat {
 export interface ChatMessage {
   id: string;
   chatId: string;
-  role: "user" | "assistant";
+  role: "user" | "assistant" | "thinking";
   content: string;
   timestamp: string;
+  images?: string[]; // URLs /uploads/... das imagens coladas (quando houver)
 }
 
 // WebSocket incoming messages
+export type EffortLevel = "low" | "medium" | "high" | "xhigh";
+
 export interface WSChatMessage {
   type: "chat";
   content: string;
   chatId: string;
   model?: string;
+  cwd?: string;
+  effort?: EffortLevel; // nível de raciocínio (omitido = default do SDK)
+  enhancedFrom?: string; // rascunho original quando a mensagem veio do ✨ (p/ aprender)
   images?: { media_type: string; data: string }[];
 }
 
@@ -49,4 +55,16 @@ export interface WSApprovalMessage {
   approved: boolean;
 }
 
-export type IncomingWSMessage = WSChatMessage | WSSubscribeMessage | WSStopMessage | WSApprovalMessage;
+// Comandos que falam com o backend (ex: /compact aciona a compactação do SDK)
+export interface WSCommandMessage {
+  type: "command";
+  chatId: string;
+  name: "compact";
+}
+
+export type IncomingWSMessage =
+  | WSChatMessage
+  | WSSubscribeMessage
+  | WSStopMessage
+  | WSApprovalMessage
+  | WSCommandMessage;

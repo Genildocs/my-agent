@@ -2,17 +2,21 @@
 @tailwind components;
 @tailwind utilities;
 
-/* code blocks: deixa o theme do highlight.js (github-dark) controlar cor/fundo;
-   o <pre> do prose fica neutro e o <code class="hljs"> ganha padding/rounded. */
-.prose pre {
-  background: transparent;
-  padding: 0;
-}
-.prose pre code.hljs {
-  display: block;
-  padding: 0.9rem 1rem;
+/* code blocks: o Shiki (react-shiki) injeta <pre class="shiki"> com cor/fundo
+   próprios via inline style. Aqui só garantimos espaçamento e que o estilo de
+   inline-code do prose (pink) NÃO vaze para os tokens do bloco. */
+.prose pre.shiki {
+  margin: 0.5rem 0;
   border-radius: 0.5rem;
-  overflow-x: auto;
-  font-size: 0.8rem;
   line-height: 1.5;
+}
+.prose pre.shiki code {
+  color: inherit;
+  background: transparent;
+  font-size: 0.8rem;
+}
+/* remove o ::before/::after e o pink em inline-code dentro do bloco Shiki */
+.prose pre.shiki code::before,
+.prose pre.shiki code::after {
+  content: none;
 }

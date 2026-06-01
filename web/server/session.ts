@@ -2,11 +2,14 @@ import { randomUUID } from "node:crypto";
 import type { WSClient, ChatMessage } from "./types.js";
 import { AgentSession, type ImagePart } from "./ai-client.js";
 import { chatStore } from "./chat-store.js";
+import { saveImages } from "./uploads.js";
 
 // Session manages a single chat conversation with a long-lived agent
 export class Session {
   public readonly chatId: string;
   public readonly model: string;
+  public readonly cwd: string;
+  public readonly effort?: string;
   private subscribers: Set<WSClient> = new Set();
   private agentSession: AgentSession;
   private isListening = false;
@@ -15,10 +18,12 @@ export class Session {
   // aprovações de tool pendentes (human-in-the-loop via canUseTool)
   private pendingApprovals = new Map<string, (ok: boolean) => void>();
 
-  constructor(chatId: string, model = "claude-sonnet-4-6", history?: ChatMessage[]) {
+  constructor(chatId: string, model = "claude-sonnet-4-6", history?: ChatMessage[], cwd = process.cwd(), effort?: string) {
     this.chatId = chatId;
     this.model = model;
-    this.agentSession = new AgentSession(model, (req) => this.requestApproval(req));
+    this.cwd = cwd;
+    this.effort = effort;
+    this.agentSession = new AgentSession(model, (req) => this.requestApproval(req), cwd, effort);
     this.pendingHistory = history && history.length ? history : undefined;
   }
 
@@ -56,14 +61,15 @@ export class Session {
 
   // Send a user message to the agent
   sendMessage(content: string, images?: ImagePart[]) {
-    // Store user message (texto; a imagem fica só na sessão atual)
-    chatStore.addMessage(this.chatId, { role: "user", content });
+    // Persiste as imagens coladas em disco (web/uploads) e guarda as URLs no SQLite.
+    const imageUrls = saveImages(images);
+    chatStore.addMessage(this.chatId, { role: "user", content, images: imageUrls });
 
     // Broadcast user message to subscribers (texto original, sem o contexto injetado)
     this.broadcast({
       type: "user_message",
       content,
-      hasImages: !!images?.length,
+      images: imageUrls,
       chatId: this.chatId,
     });
 
@@ -71,6 +77,7 @@ export class Session {
     let toAgent = content;
     if (this.pendingHistory) {
       const ctx = this.pendingHistory
+        .filter((m) => m.role !== "thinking") // raciocínio não volta como contexto
         .map((m) => `${m.role === "user" ? "Usuário" : "Assistente"}: ${m.content}`)
         .join("\n");
       toAgent = `[Contexto da conversa até aqui:\n${ctx}\n]\n\n${content}`;
@@ -85,32 +92,57 @@ export class Session {
     }
   }
 
+  // id do bloco em streaming + tipo do bloco aberto (texto ou raciocínio)
+  private streamingId: string | null = null;
+  private activeBlock: "text" | "thinking" | null = null;
+
   private handleSDKMessage(message: any) {
+    // Eventos parciais (includePartialMessages): texto/raciocínio token a token.
+    if (message.type === "stream_event") {
+      const ev = message.event;
+      if (ev?.type === "content_block_start") {
+        const t = ev.content_block?.type;
+        if (t === "text") {
+          this.streamingId = randomUUID();
+          this.activeBlock = "text";
+          this.broadcast({ type: "assistant_start", id: this.streamingId, chatId: this.chatId });
+        } else if (t === "thinking") {
+          this.streamingId = randomUUID();
+          this.activeBlock = "thinking";
+          this.broadcast({ type: "thinking_start", id: this.streamingId, chatId: this.chatId });
+        }
+      } else if (ev?.type === "content_block_delta" && this.streamingId) {
+        const d = ev.delta;
+        if (d?.type === "text_delta") {
+          this.broadcast({ type: "assistant_delta", id: this.streamingId, text: d.text, chatId: this.chatId });
+        } else if (d?.type === "thinking_delta") {
+          this.broadcast({ type: "thinking_delta", id: this.streamingId, text: d.thinking, chatId: this.chatId });
+        }
+      } else if (ev?.type === "content_block_stop" && this.streamingId) {
+        const evt = this.activeBlock === "thinking" ? "thinking_end" : "assistant_end";
+        this.broadcast({ type: evt, id: this.streamingId, chatId: this.chatId });
+        this.streamingId = null;
+        this.activeBlock = null;
+      }
+      return;
+    }
+
     if (message.type === "assistant") {
       const content = message.message.content;
 
       if (typeof content === "string") {
-        chatStore.addMessage(this.chatId, {
-          role: "assistant",
-          content,
-        });
-        this.broadcast({
-          type: "assistant_message",
-          content,
-          chatId: this.chatId,
-        });
+        // sem streaming desse bloco (caminho raro): persiste e envia inteiro
+        chatStore.addMessage(this.chatId, { role: "assistant", content });
+        this.broadcast({ type: "assistant_message", content, chatId: this.chatId });
       } else if (Array.isArray(content)) {
         for (const block of content) {
-          if (block.type === "text") {
-            chatStore.addMessage(this.chatId, {
-              role: "assistant",
-              content: block.text,
-            });
-            this.broadcast({
-              type: "assistant_message",
-              content: block.text,
-              chatId: this.chatId,
-            });
+          if (block.type === "thinking") {
+            // raciocínio já foi transmitido via stream_event; aqui só PERSISTE
+            // (antes do texto, preservando a ordem no histórico)
+            if (block.thinking) chatStore.addMessage(this.chatId, { role: "thinking", content: block.thinking });
+          } else if (block.type === "text") {
+            // o texto já foi transmitido via stream_event; aqui só PERSISTE no SQLite
+            chatStore.addMessage(this.chatId, { role: "assistant", content: block.text });
           } else if (block.type === "tool_use") {
             this.broadcast({
               type: "tool_use",
@@ -122,13 +154,19 @@ export class Session {
           }
         }
       }
+    } else if (message.type === "system" && message.subtype === "compact_boundary") {
+      // compactação concluída -> avisa a UI (toast)
+      this.broadcast({ type: "notice", level: "success", text: "Contexto compactado", chatId: this.chatId });
     } else if (message.type === "result") {
+      const u = message.usage || {};
       this.broadcast({
         type: "result",
         success: message.subtype === "success",
         chatId: this.chatId,
         cost: message.total_cost_usd,
         duration: message.duration_ms,
+        inputTokens: (u.input_tokens || 0) + (u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0),
+        outputTokens: u.output_tokens || 0,
       });
     }
   }
@@ -166,6 +204,15 @@ export class Session {
       error,
       chatId: this.chatId,
     });
+  }
+
+  // Comandos que falam com o backend (ex: /compact aciona a compactação do SDK).
+  // Envia o slash-command nativo pela fila de input (sem persistir como mensagem).
+  runCommand(name: "compact") {
+    if (name === "compact") {
+      this.agentSession.sendMessage("/compact");
+      if (!this.isListening) this.startListening();
+    }
   }
 
   // Interrompe o turno atual (botão parar)

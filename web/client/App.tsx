@@ -1,5 +1,7 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import useWebSocket, { ReadyState } from "react-use-websocket";
+import { Toaster, toast } from "sonner";
+import { Wrench, ListTodo, GitBranch } from "lucide-react";
 import { ChatList } from "./components/ChatList";
 import { ChatWindow } from "./components/ChatWindow";
 import { ToolPanel, type PanelEvent } from "./components/ToolPanel";
@@ -16,11 +18,12 @@ interface Chat {
 
 interface Message {
   id: string;
-  role: "user" | "assistant" | "tool_use";
+  role: "user" | "assistant" | "tool_use" | "thinking" | "subagent";
   content: string;
   timestamp: string;
   toolName?: string;
   toolInput?: Record<string, any>;
+  images?: string[]; // URLs (/uploads/...) ou data: das imagens da mensagem
 }
 
 // status legível do que o agente está fazendo agora (a partir do nome da tool)
@@ -52,17 +55,25 @@ export default function App() {
   const [toolEvents, setToolEvents] = useState<PanelEvent[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [rightTab, setRightTab] = useState<"tools" | "tasks" | "git">("tools");
-  const [git, setGit] = useState({ diff: "", status: "" });
+  const [git, setGit] = useState({ diff: "", status: "", numstat: "" });
+  // arquivos que o agente editou no turno atual (para o escopo "último turno" do Git)
+  const [lastTurnFiles, setLastTurnFiles] = useState<string[]>([]);
   const [todos, setTodos] = useState<Todo[]>([]);
   const [model, setModel] = useState("claude-sonnet-4-6");
+  const [effort, setEffort] = useState<string>(""); // "" = default do SDK
+  const [cwd, setCwd] = useState(window.location.hostname === "localhost" ? "" : "");
   const [agentStatus, setAgentStatus] = useState("Pensando...");
   const [approval, setApproval] = useState<ApprovalRequest | null>(null);
+  // tools que o usuário marcou como "✓ Sempre" -> auto-aprovadas no resto da sessão
+  const [alwaysApprove, setAlwaysApprove] = useState<Set<string>>(new Set());
+  const [lastResult, setLastResult] = useState<{ cost?: number; duration?: number; inputTokens?: number; outputTokens?: number } | null>(null);
+  const [projectInfo, setProjectInfo] = useState<{ cwd: string; branch: string; lastCommit: string } | null>(null);
 
   const fetchGitDiff = useCallback(async () => {
     try {
       const res = await fetch(`${API_BASE}/git/diff`);
       const data = await res.json();
-      setGit({ diff: data.diff || "", status: data.status || "" });
+      setGit({ diff: data.diff || "", status: data.status || "", numstat: data.numstat || "" });
     } catch (error) {
       console.error("Failed to fetch git diff:", error);
     }
@@ -84,6 +95,7 @@ export default function App() {
         break;
 
       case "assistant_message":
+        // fallback (sem streaming): mensagem inteira de uma vez
         setMessages((prev) => [
           ...prev,
           {
@@ -96,12 +108,70 @@ export default function App() {
         setAgentStatus("Escrevendo...");
         break;
 
+      case "assistant_start":
+        // abre uma bolha vazia que será preenchida pelos deltas
+        setMessages((prev) => [
+          ...prev,
+          { id: message.id, role: "assistant", content: "", timestamp: new Date().toISOString() },
+        ]);
+        setAgentStatus("Escrevendo...");
+        break;
+
+      case "assistant_delta":
+        // anexa o token à bolha em streaming
+        setMessages((prev) =>
+          prev.map((m) => (m.id === message.id ? { ...m, content: m.content + message.text } : m))
+        );
+        break;
+
+      case "assistant_end":
+        break;
+
+      case "thinking_start":
+        setAgentStatus("Raciocinando...");
+        setMessages((prev) => [
+          ...prev,
+          { id: message.id, role: "thinking", content: "", timestamp: new Date().toISOString() },
+        ]);
+        break;
+
+      case "thinking_delta":
+        setMessages((prev) =>
+          prev.map((m) => (m.id === message.id ? { ...m, content: m.content + message.text } : m))
+        );
+        break;
+
+      case "thinking_end":
+        break;
+
       case "tool_use":
         setAgentStatus(statusForTool(message.toolName, message.toolInput));
         // TodoWrite = plano do agente -> vai pro painel de Tarefas (substitui a lista).
         if (message.toolName === "TodoWrite") {
           setTodos(message.toolInput?.todos || []);
           break;
+        }
+        // edições de arquivo -> registra para o escopo "último turno" do Git
+        if (["Write", "Edit", "MultiEdit"].includes(message.toolName) && message.toolInput?.file_path) {
+          setLastTurnFiles((prev) =>
+            prev.includes(message.toolInput.file_path) ? prev : [...prev, message.toolInput.file_path]
+          );
+        }
+        // delegações (Task) e consulta ao guardião viram CARD inline no fluxo (como o opencode),
+        // em vez de irem só para o painel de atividade.
+        if (message.toolName === "Task" || message.toolName?.startsWith("mcp__consultor__")) {
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: message.toolId || crypto.randomUUID(),
+              role: "subagent",
+              content: "",
+              timestamp: new Date().toISOString(),
+              toolName: message.toolName,
+              toolInput: message.toolInput,
+            },
+          ]);
+          break; // não duplica no painel direito
         }
         // demais tools vão para o painel de atividade (não polui a conversa).
         setToolEvents((prev) => [
@@ -145,6 +215,12 @@ export default function App() {
 
       case "result":
         setIsLoading(false);
+        setLastResult({
+          cost: message.cost,
+          duration: message.duration,
+          inputTokens: message.inputTokens,
+          outputTokens: message.outputTokens,
+        });
         // Refresh chat list to get updated titles
         fetchChats();
         // o agente pode ter editado arquivos -> atualiza o diff
@@ -159,6 +235,13 @@ export default function App() {
       case "error":
         console.error("Server error:", message.error);
         setIsLoading(false);
+        toast.error(message.error || "Erro desconhecido no servidor.");
+        break;
+
+      case "notice":
+        // avisos do backend (ex: contexto compactado)
+        if (message.level === "success") toast.success(message.text);
+        else toast(message.text);
         break;
     }
   }, [fetchGitDiff]);
@@ -168,6 +251,13 @@ export default function App() {
       sendJsonMessage({ type: "approval", chatId: selectedChatId, id: approval.id, approved });
     }
     setApproval(null);
+  };
+
+  // "✓ Sempre": aprova agora e memoriza a tool para auto-aprovar as próximas
+  const approveAlways = () => {
+    if (!approval) return;
+    setAlwaysApprove((prev) => new Set(prev).add(approval.tool));
+    respondApproval(true);
   };
 
   const { sendJsonMessage, readyState, lastJsonMessage } = useWebSocket(WS_URL, {
@@ -184,6 +274,14 @@ export default function App() {
       handleWSMessage(lastJsonMessage);
     }
   }, [lastJsonMessage, handleWSMessage]);
+
+  // auto-aprova (sem modal) as tools que o usuário marcou como "✓ Sempre"
+  useEffect(() => {
+    if (approval && alwaysApprove.has(approval.tool) && selectedChatId) {
+      sendJsonMessage({ type: "approval", chatId: selectedChatId, id: approval.id, approved: true });
+      setApproval(null);
+    }
+  }, [approval, alwaysApprove, selectedChatId, sendJsonMessage]);
 
   // Fetch all chats
   const fetchChats = async () => {
@@ -203,18 +301,41 @@ export default function App() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
       });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const chat = await res.json();
       setChats((prev) => [chat, ...prev]);
       selectChat(chat.id);
     } catch (error) {
       console.error("Failed to create chat:", error);
+      toast.error("Não consegui criar o chat.");
+    }
+  };
+
+  // Rename chat
+  const renameChat = async (chatId: string, title: string) => {
+    const prevTitle = chats.find((c) => c.id === chatId)?.title;
+    // otimista: atualiza local já; persiste no servidor
+    setChats((prev) => prev.map((c) => (c.id === chatId ? { ...c, title } : c)));
+    try {
+      const res = await fetch(`${API_BASE}/chats/${chatId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    } catch (error) {
+      console.error("Failed to rename chat:", error);
+      toast.error("Não consegui renomear o chat.");
+      // reverte o otimista
+      if (prevTitle !== undefined) setChats((prev) => prev.map((c) => (c.id === chatId ? { ...c, title: prevTitle } : c)));
     }
   };
 
   // Delete chat
   const deleteChat = async (chatId: string) => {
     try {
-      await fetch(`${API_BASE}/chats/${chatId}`, { method: "DELETE" });
+      const res = await fetch(`${API_BASE}/chats/${chatId}`, { method: "DELETE" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setChats((prev) => prev.filter((c) => c.id !== chatId));
       if (selectedChatId === chatId) {
         setSelectedChatId(null);
@@ -222,6 +343,7 @@ export default function App() {
       }
     } catch (error) {
       console.error("Failed to delete chat:", error);
+      toast.error("Não consegui arquivar o chat.");
     }
   };
 
@@ -232,6 +354,7 @@ export default function App() {
     setToolEvents([]);
     setTodos([]);
     setApproval(null);
+    setAlwaysApprove(new Set());
     setIsLoading(false);
 
     // Subscribe to chat via WebSocket
@@ -243,23 +366,33 @@ export default function App() {
     if (selectedChatId) sendJsonMessage({ type: "stop", chatId: selectedChatId });
   };
 
+  // /compact: aciona a compactação de contexto do SDK no backend
+  const handleCompact = () => {
+    if (!selectedChatId || !isConnected) return;
+    setIsLoading(true);
+    setAgentStatus("Compactando contexto...");
+    sendJsonMessage({ type: "command", chatId: selectedChatId, name: "compact" });
+  };
+
   // Send a message
-  const handleSendMessage = (content: string, images?: { media_type: string; data: string }[]) => {
+  const handleSendMessage = (content: string, images?: { media_type: string; data: string }[], enhancedFrom?: string) => {
     if (!selectedChatId || !isConnected) return;
 
-    // Add message optimistically
+    // Add message optimistically (imagens como data: para aparecer imediatamente)
     setMessages((prev) => [
       ...prev,
       {
         id: crypto.randomUUID(),
         role: "user",
-        content: content || (images?.length ? "🖼️ (imagem)" : ""),
+        content: content || "",
         timestamp: new Date().toISOString(),
+        images: images?.map((img) => `data:${img.media_type};base64,${img.data}`),
       },
     ]);
 
     setIsLoading(true);
     setAgentStatus("Pensando...");
+    setLastTurnFiles([]); // novo turno -> zera os arquivos editados
 
     // Send via WebSocket
     sendJsonMessage({
@@ -267,6 +400,9 @@ export default function App() {
       content,
       chatId: selectedChatId,
       model,
+      cwd: cwd.trim() || undefined,
+      effort: effort || undefined,
+      enhancedFrom,
       images,
     });
   };
@@ -274,6 +410,10 @@ export default function App() {
   // Initial fetch
   useEffect(() => {
     fetchChats();
+    fetch(`${API_BASE}/project/info`)
+      .then((r) => r.json())
+      .then((d) => setProjectInfo({ cwd: d.cwd || "", branch: d.branch || "", lastCommit: d.lastCommit || "" }))
+      .catch(() => {});
   }, []);
 
   return (
@@ -286,6 +426,7 @@ export default function App() {
           onSelectChat={selectChat}
           onNewChat={createChat}
           onDeleteChat={deleteChat}
+          onRenameChat={renameChat}
         />
       </div>
 
@@ -299,7 +440,16 @@ export default function App() {
         onStop={handleStop}
         model={model}
         onModelChange={setModel}
+        effort={effort}
+        onEffortChange={setEffort}
+        cwd={cwd}
+        onCwdChange={setCwd}
         agentStatus={agentStatus}
+        lastResult={lastResult}
+        projectInfo={projectInfo}
+        onNewChat={createChat}
+        onOpenPanel={setRightTab}
+        onCompact={handleCompact}
       />
 
       {/* Painel direito: abas Tools (ao vivo) / Git (diff das edições) */}
@@ -308,44 +458,54 @@ export default function App() {
           <div className="flex border-b border-gray-200 text-sm">
             <button
               onClick={() => setRightTab("tools")}
-              className={`flex-1 px-3 py-2 font-medium ${
+              className={`flex-1 px-3 py-2 font-medium flex items-center justify-center gap-1.5 ${
                 rightTab === "tools" ? "bg-white text-gray-900 border-b-2 border-blue-500" : "text-gray-500 hover:bg-gray-100"
               }`}
             >
-              🔧 Tools <span className="text-xs text-gray-400">{toolEvents.length}</span>
+              <Wrench className="w-4 h-4" /> Tools <span className="text-xs text-gray-400">{toolEvents.length}</span>
             </button>
             <button
               onClick={() => setRightTab("tasks")}
-              className={`flex-1 px-3 py-2 font-medium ${
+              className={`flex-1 px-3 py-2 font-medium flex items-center justify-center gap-1.5 ${
                 rightTab === "tasks" ? "bg-white text-gray-900 border-b-2 border-blue-500" : "text-gray-500 hover:bg-gray-100"
               }`}
             >
-              📋 Tarefas {todos.length > 0 && <span className="text-xs text-gray-400">{todos.length}</span>}
+              <ListTodo className="w-4 h-4" /> Tarefas {todos.length > 0 && <span className="text-xs text-gray-400">{todos.length}</span>}
             </button>
             <button
               onClick={() => {
                 setRightTab("git");
                 fetchGitDiff();
               }}
-              className={`flex-1 px-3 py-2 font-medium ${
+              className={`flex-1 px-3 py-2 font-medium flex items-center justify-center gap-1.5 ${
                 rightTab === "git" ? "bg-white text-gray-900 border-b-2 border-blue-500" : "text-gray-500 hover:bg-gray-100"
               }`}
             >
-              🌿 Git
+              <GitBranch className="w-4 h-4" /> Git
             </button>
           </div>
           <div className="flex-1 min-h-0">
             {rightTab === "tools" && <ToolPanel events={toolEvents} />}
             {rightTab === "tasks" && <TaskPanel todos={todos} />}
-            {rightTab === "git" && <GitPanel diff={git.diff} status={git.status} onRefresh={fetchGitDiff} />}
+            {rightTab === "git" && (
+              <GitPanel diff={git.diff} status={git.status} numstat={git.numstat} onRefresh={fetchGitDiff} lastTurnFiles={lastTurnFiles} />
+            )}
           </div>
         </div>
       )}
 
       {/* modal de aprovação (human-in-the-loop) */}
       {approval && (
-        <ApprovalModal req={approval} onApprove={() => respondApproval(true)} onReject={() => respondApproval(false)} />
+        <ApprovalModal
+          req={approval}
+          onApprove={() => respondApproval(true)}
+          onApproveAlways={approveAlways}
+          onReject={() => respondApproval(false)}
+        />
       )}
+
+      {/* toasts (erros do servidor, etc.) */}
+      <Toaster position="top-right" richColors closeButton />
     </div>
   );
 }

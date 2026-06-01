@@ -10,36 +10,61 @@ import { onPreToolUse, onPostToolUse } from './hooks.ts';
 // Comandos shell destrutivos / de escalonamento.
 const DANGEROUS_BASH = /\brm\s+-[rf]{1,2}\b|\bmkfs\b|\bdd\s+if=|:\(\)\s*\{|>\s*\/dev\/|\bsudo\b|\bchmod\s+-R\b|\bgit\s+(reset\s+--hard|clean\s+-[fd])/;
 
-export const guardHook: HookCallback = async (input) => {
-  const pre = input as PreToolUseHookInput;
-  const ti = (pre.tool_input ?? {}) as Record<string, unknown>;
-  let reason: string | null = null;
+// Tools que mexem no sistema -> candidatas a confirmação humana (canUseTool).
+const MUTATING_TOOLS = ['Bash', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit'];
 
-  if (pre.tool_name === 'Bash') {
-    const cmd = String(ti.command ?? '');
-    if (DANGEROUS_BASH.test(cmd)) reason = `comando destrutivo: ${cmd}`;
-  } else if (['Write', 'Edit', 'MultiEdit'].includes(pre.tool_name)) {
-    const fp = String(ti.file_path ?? '');
-    const name = fp.split('/').pop() ?? '';
-    if (name === '.env') reason = 'escrita em .env';
-    else if (fp && !resolve(fp).startsWith(process.cwd())) reason = `escrita fora do projeto: ${fp}`;
-  }
+// Recebe o cwd configurado para a sessão (pode diferir de process.cwd()).
+// askOnMutate: para tools mutantes NÃO-perigosas, devolve permissionDecision:'ask'
+//   em vez de {}. Necessário porque um PreToolUse hook que retorna {} resolve a
+//   permissão como "allow" no passo 1 (hooks) e CURTO-CIRCUITA antes do canUseTool
+//   (passo 5) — sem 'ask', o modal de aprovação no browser nunca dispara.
+export function createGuardedHooks(cwd: string, opts: { askOnMutate?: boolean } = {}) {
+  const resolvedCwd = resolve(cwd);
 
-  if (reason) {
-    await log.warn('guard.deny', { tool: pre.tool_name, reason });
-    return {
-      hookSpecificOutput: {
-        hookEventName: pre.hook_event_name,
-        permissionDecision: 'deny',
-        permissionDecisionReason: `Bloqueado pelo guard: ${reason}`,
-      },
-    };
-  }
-  return {}; // sem objeção -> segue para o permissionMode
-};
+  const hook: HookCallback = async (input) => {
+    const pre = input as PreToolUseHookInput;
+    const ti = (pre.tool_input ?? {}) as Record<string, unknown>;
+    let reason: string | null = null;
 
-// Hooks para o chat capaz: loga toda tool call + aplica o veto antes de executar.
-export const guardedHooks = {
-  PreToolUse: [{ hooks: [onPreToolUse, guardHook] }],
-  PostToolUse: [{ hooks: [onPostToolUse] }],
-};
+    if (pre.tool_name === 'Bash') {
+      const cmd = String(ti.command ?? '');
+      if (DANGEROUS_BASH.test(cmd)) reason = `comando destrutivo: ${cmd}`;
+    } else if (['Write', 'Edit', 'MultiEdit'].includes(pre.tool_name)) {
+      const fp = String(ti.file_path ?? '');
+      const name = fp.split('/').pop() ?? '';
+      if (name === '.env') reason = 'escrita em .env';
+      else if (fp && !resolve(fp).startsWith(resolvedCwd)) reason = `escrita fora do projeto: ${fp}`;
+    }
+
+    if (reason) {
+      await log.warn('guard.deny', { tool: pre.tool_name, reason });
+      return {
+        hookSpecificOutput: {
+          hookEventName: pre.hook_event_name,
+          permissionDecision: 'deny',
+          permissionDecisionReason: `Bloqueado pelo guard: ${reason}`,
+        },
+      };
+    }
+
+    // não-perigoso, mas mutante: encaminha para o prompt (canUseTool) em vez de auto-allow
+    if (opts.askOnMutate && MUTATING_TOOLS.includes(pre.tool_name)) {
+      return {
+        hookSpecificOutput: {
+          hookEventName: pre.hook_event_name,
+          permissionDecision: 'ask',
+        },
+      };
+    }
+
+    return {};
+  };
+
+  return {
+    PreToolUse: [{ hooks: [onPreToolUse, hook] }],
+    PostToolUse: [{ hooks: [onPostToolUse] }],
+  };
+}
+
+// Compat: usa o cwd do processo (comportamento original)
+export const guardedHooks = createGuardedHooks(process.cwd());

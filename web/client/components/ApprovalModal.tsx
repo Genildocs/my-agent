@@ -10,10 +10,12 @@ export interface ApprovalRequest {
 export function ApprovalModal({
   req,
   onApprove,
+  onApproveAlways,
   onReject,
 }: {
   req: ApprovalRequest;
   onApprove: () => void;
+  onApproveAlways: () => void;
   onReject: () => void;
 }) {
   const i = req.input || {};
@@ -42,6 +44,13 @@ export function ApprovalModal({
             className="px-3 py-1.5 text-sm rounded bg-green-600 text-white hover:bg-green-700"
           >
             Aprovar
+          </button>
+          <button
+            onClick={onApproveAlways}
+            className="px-3 py-1.5 text-sm rounded bg-blue-600 text-white hover:bg-blue-700"
+            title={`Aprovar ${req.tool} automaticamente em todas as próximas chamadas`}
+          >
+            ✓ Sempre
           </button>
         </div>
       </div>

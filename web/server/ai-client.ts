@@ -3,17 +3,20 @@
 // docs (consultar_guardian) + guard hook vetando o perigoso.
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { consultorServer, CONSULTOR_TOOL } from '../../src/agents/consultor.ts';
-import { guardedHooks } from '../../src/core/guard.ts';
+import { createGuardedHooks } from '../../src/core/guard.ts';
 
-const SYSTEM = `Você é um assistente de engenharia trabalhando NESTE projeto (mini-NotebookLM em TypeScript).
+function buildSystemPrompt(cwd: string) {
+  return `Você é um assistente de engenharia trabalhando no projeto em: ${cwd}
 Capacidades: ler (Read, Glob, Grep), editar/criar arquivos (Edit, Write), rodar comandos (Bash) e
 consultar o guardião (consultar_guardian) — que responde ancorado na documentação OFICIAL do Claude Agent SDK.
 Regras:
+- O diretório de trabalho é ${cwd}. Use caminhos relativos a esse diretório ou absolutos dentro dele.
 - Quando o usuário referenciar um arquivo com @caminho/do/arquivo, leia-o com Read antes de responder.
 - Para QUALQUER afirmação sobre a API do Agent SDK, consulte o guardião antes — não confie na memória.
 - Você pode corrigir o código diretamente (Edit/Write) quando fizer sentido.
 - Um guard bloqueia ações destrutivas (rm -rf, escrita fora do projeto, .env). Se algo for bloqueado, explique e siga outro caminho.
 - Responda em português do Brasil, de forma objetiva.`;
+}
 
 export interface ImagePart {
   media_type: string;
@@ -70,18 +73,23 @@ export class AgentSession {
   private q: ReturnType<typeof query>;
   private outputIterator: AsyncIterator<any>;
 
-  constructor(model = 'claude-sonnet-4-6', onApproval?: ApprovalFn) {
+  constructor(model = 'claude-sonnet-4-6', onApproval?: ApprovalFn, cwd = process.cwd(), effort?: string) {
     this.q = query({
       prompt: this.queue as any,
       options: {
         model,
+        cwd,
         maxTurns: 200,
+        // nível de raciocínio (low/medium/high/xhigh); omitido = default do SDK
+        ...(effort ? { effort: effort as any } : {}),
+        // emite stream_event (text_delta) para o front renderizar token a token
+        includePartialMessages: true,
         mcpServers: { consultor: consultorServer },
         // só leitura é pré-aprovada; escrita/exec caem no canUseTool (default mode)
         allowedTools: ['Read', 'Glob', 'Grep', 'TodoWrite', CONSULTOR_TOOL],
         permissionMode: 'default',
-        systemPrompt: { type: 'preset', preset: 'claude_code', append: SYSTEM },
-        hooks: guardedHooks, // guard veta o destrutivo ANTES (rm -rf, .env)
+        systemPrompt: { type: 'preset', preset: 'claude_code', append: buildSystemPrompt(cwd) },
+        hooks: createGuardedHooks(cwd, { askOnMutate: true }),
         canUseTool: async (toolName: string, input: any) => {
           if (!NEEDS_APPROVAL.has(toolName) || !onApproval) {
             return { behavior: 'allow', updatedInput: input };

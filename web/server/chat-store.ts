@@ -28,7 +28,22 @@ db.exec(`
     timestamp TEXT NOT NULL
   );
   CREATE INDEX IF NOT EXISTS idx_messages_chat ON messages(chatId, timestamp);
+
+  -- Exemplos para o prompt enhancer "evoluir": pares (rascunho -> prompt enviado)
+  -- que o usuário aprovou ao enviar. Injetados como few-shot nas próximas melhorias.
+  CREATE TABLE IF NOT EXISTS prompt_examples (
+    id        TEXT PRIMARY KEY,
+    original  TEXT NOT NULL,
+    final     TEXT NOT NULL,
+    createdAt TEXT NOT NULL
+  );
 `);
+
+// Migração: coluna `images` (JSON com as URLs /uploads/...). Bancos antigos não têm.
+const messageCols = db.prepare("PRAGMA table_info(messages)").all() as { name: string }[];
+if (!messageCols.some((c) => c.name === "images")) {
+  db.exec("ALTER TABLE messages ADD COLUMN images TEXT");
+}
 
 class ChatStore {
   private insertChat = db.prepare(
@@ -39,9 +54,17 @@ class ChatStore {
   private touchChat = db.prepare("UPDATE chats SET title = ?, updatedAt = ? WHERE id = ?");
   private removeChat = db.prepare("DELETE FROM chats WHERE id = ?");
   private insertMessage = db.prepare(
-    "INSERT INTO messages (id, chatId, role, content, timestamp) VALUES (?, ?, ?, ?, ?)",
+    "INSERT INTO messages (id, chatId, role, content, images, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
   );
-  private selectMessages = db.prepare("SELECT * FROM messages WHERE chatId = ? ORDER BY timestamp ASC");
+  // rowid como desempate: garante ordem de inserção quando timestamps empatam
+  // (ex: bloco de raciocínio e texto persistidos no mesmo milissegundo).
+  private selectMessages = db.prepare("SELECT * FROM messages WHERE chatId = ? ORDER BY timestamp ASC, rowid ASC");
+  private insertExample = db.prepare(
+    "INSERT INTO prompt_examples (id, original, final, createdAt) VALUES (?, ?, ?, ?)",
+  );
+  private selectRecentExamples = db.prepare(
+    "SELECT original, final FROM prompt_examples ORDER BY createdAt DESC LIMIT ?",
+  );
 
   createChat(title?: string): Chat {
     const now = new Date().toISOString();
@@ -80,7 +103,8 @@ class ChatStore {
       timestamp: new Date().toISOString(),
       ...message,
     };
-    this.insertMessage.run(newMessage.id, chatId, newMessage.role, newMessage.content, newMessage.timestamp);
+    const imagesJson = newMessage.images?.length ? JSON.stringify(newMessage.images) : null;
+    this.insertMessage.run(newMessage.id, chatId, newMessage.role, newMessage.content, imagesJson, newMessage.timestamp);
 
     // título automático a partir da 1ª mensagem do usuário (se ainda "New Chat")
     const title =
@@ -93,7 +117,23 @@ class ChatStore {
   }
 
   getMessages(chatId: string): ChatMessage[] {
-    return this.selectMessages.all(chatId) as ChatMessage[];
+    return (this.selectMessages.all(chatId) as any[]).map((r) => ({
+      ...r,
+      images: r.images ? (JSON.parse(r.images) as string[]) : undefined,
+    }));
+  }
+
+  // grava um par aprovado (rascunho -> prompt final enviado) para o enhancer aprender
+  addPromptExample(original: string, final: string) {
+    const o = original.trim();
+    const f = final.trim();
+    if (!o || !f || o === f) return; // sem sinal de aprendizado
+    this.insertExample.run(uuidv4(), o, f, new Date().toISOString());
+  }
+
+  // últimos N pares aprovados (mais recentes primeiro) para injetar como few-shot
+  recentPromptExamples(limit = 5): { original: string; final: string }[] {
+    return this.selectRecentExamples.all(limit) as { original: string; final: string }[];
   }
 }
 
