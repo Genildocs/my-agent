@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { WSClient, ChatMessage } from "./types.js";
 import { AgentSession, type ImagePart } from "./ai-client.js";
+import { runTester } from "../../src/agents/tester.ts";
 import { chatStore } from "./chat-store.js";
 import { saveImages } from "./uploads.js";
 
@@ -78,7 +79,10 @@ export class Session {
     if (this.pendingHistory) {
       const ctx = this.pendingHistory
         .filter((m) => m.role !== "thinking") // raciocínio não volta como contexto
-        .map((m) => `${m.role === "user" ? "Usuário" : "Assistente"}: ${m.content}`)
+        .map((m) => {
+          const who = m.role === "user" ? "Usuário" : m.role === "tester" ? "Tester" : "Assistente";
+          return `${who}: ${m.content}`;
+        })
         .join("\n");
       toAgent = `[Contexto da conversa até aqui:\n${ctx}\n]\n\n${content}`;
       this.pendingHistory = undefined;
@@ -206,12 +210,48 @@ export class Session {
     });
   }
 
-  // Comandos que falam com o backend (ex: /compact aciona a compactação do SDK).
-  // Envia o slash-command nativo pela fila de input (sem persistir como mensagem).
-  runCommand(name: "compact") {
+  // Comandos que falam com o backend.
+  // - compact: envia o slash-command nativo pela fila de input do agente principal.
+  // - test: dispara o tester num query() PRÓPRIO (não passa pela conversa principal).
+  runCommand(name: "compact" | "test", args?: string) {
     if (name === "compact") {
       this.agentSession.sendMessage("/compact");
       if (!this.isListening) this.startListening();
+    } else if (name === "test") {
+      void this.runTesterFlow(args);
+    }
+  }
+
+  // Roda o tester (agente que só o usuário dispara) e transmite o progresso como
+  // um card próprio no fluxo do chat. Bash liberado no runner (ver tester.ts).
+  private async runTesterFlow(instruction?: string) {
+    const id = randomUUID();
+    this.broadcast({ type: "tester_start", id, chatId: this.chatId, instruction: instruction ?? "" });
+    let report = "";
+    try {
+      for await (const msg of runTester(this.cwd, instruction)) {
+        if (msg.type === "stream_event") {
+          const ev = msg.event;
+          if (ev?.type === "content_block_delta" && ev.delta?.type === "text_delta") {
+            report += ev.delta.text;
+            this.broadcast({ type: "tester_delta", id, text: ev.delta.text, chatId: this.chatId });
+          }
+        } else if (msg.type === "assistant" && Array.isArray(msg.message.content)) {
+          for (const block of msg.message.content) {
+            if (block.type === "tool_use" && block.name === "Bash") {
+              const command = String((block.input as any)?.command ?? "");
+              this.broadcast({ type: "tester_tool", id, command, chatId: this.chatId });
+            }
+          }
+        }
+      }
+      if (report.trim()) chatStore.addMessage(this.chatId, { role: "tester", content: report });
+      this.broadcast({ type: "tester_end", id, chatId: this.chatId, success: true });
+    } catch (error) {
+      const text = (error as Error).message;
+      console.error(`Tester error in session ${this.chatId}:`, error);
+      this.broadcast({ type: "tester_end", id, chatId: this.chatId, success: false, error: text });
+      this.broadcastError(`Tester: ${text}`);
     }
   }
 

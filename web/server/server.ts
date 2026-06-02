@@ -15,7 +15,7 @@ import type { WSClient, IncomingWSMessage } from "./types.js";
 import { chatStore } from "./chat-store.js";
 import { Session } from "./session.js";
 import { UPLOADS_DIR } from "./uploads.js";
-import { enhancePrompt } from "./enhance.js";
+import { enhancePrompt } from "../../src/agents/enhance.ts";
 import { logEvents } from "../../src/core/logger.ts";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -334,8 +334,25 @@ wss.on("connection", (ws: WSClient) => {
         }
 
         case "command": {
-          const session = sessions.get(message.chatId);
-          if (session) session.runCommand(message.name);
+          let session: Session | undefined;
+          if (message.name === "test") {
+            // /test roda no cwd do chat: garante a sessão no diretório certo
+            // (recria se divergir, como o fluxo de chat) — cobre /test como 1ª ação.
+            let safeCwd: string | undefined;
+            try {
+              safeCwd = resolveCwd(message.cwd);
+            } catch {
+              /* cwd inválido -> usa o default do processo */
+            }
+            session = getOrCreateSession(message.chatId, undefined, safeCwd);
+          } else {
+            // /compact exige uma conversa já em andamento (sessão existente).
+            session = sessions.get(message.chatId);
+          }
+          if (session) {
+            session.subscribe(ws); // garante que os broadcasts cheguem a este client
+            session.runCommand(message.name, message.args);
+          }
           break;
         }
 

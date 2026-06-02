@@ -19,7 +19,7 @@ export interface Chat {
 export interface ChatMessage {
   id: string;
   chatId: string;
-  role: "user" | "assistant" | "thinking";
+  role: "user" | "assistant" | "thinking" | "tester";
   content: string;
   timestamp: string;
   images?: string[]; // URLs /uploads/... das imagens coladas (quando houver)
@@ -56,11 +56,15 @@ export interface WSApprovalMessage {
   approved: boolean;
 }
 
-// Comandos que falam com o backend (ex: /compact aciona a compactação do SDK)
+// Comandos que falam com o backend.
+// - compact: aciona a compactação de contexto do SDK
+// - test: dispara o tester (query próprio, Bash liberado); args = instrução opcional
 export interface WSCommandMessage {
   type: "command";
   chatId: string;
-  name: "compact";
+  name: "compact" | "test";
+  args?: string;
+  cwd?: string;
 }
 
 export type IncomingWSMessage =
