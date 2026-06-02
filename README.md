@@ -73,7 +73,8 @@ src/
   agents/
     runtime.ts              Base buildAgentOptions — scaffolding comum das options do query()
     main-agent.ts           Definição do agente principal (web): system prompt + tools + aprovação
-    subagents.ts            Subagentes read-only (explorer/reviewer/planner) via a tool Agent
+    subagents.ts            Subagentes read-only via a tool Agent: explorer, reviewer, planner,
+                            architect (trade-offs/ADR), critic (review geral), scribe (rascunha docs)
     tester.ts               Runner do /test (query próprio, Bash liberado, guard ativo)
     enhance.ts              Prompt enhancer (✨) — reescreve a mensagem num prompt acionável
     guardian.ts             Guardian of Library — responde ancorado nas fontes (loop travado)
