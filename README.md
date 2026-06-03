@@ -39,6 +39,45 @@ Hoje é uma ferramenta de trabalho.
 
 ---
 
+## 📸 Em ação
+
+<div align="center">
+
+<sub>Streaming com <b>raciocínio visível</b>, código com <b>syntax highlight</b> e os painéis ao vivo — operando no próprio repositório.</sub>
+
+<img src="docs/screenshots/02-chat.png" alt="my-agent-chat: streaming, código com Shiki e painel de tools ao vivo" width="900"/>
+
+</div>
+
+<table>
+<tr>
+<td width="50%"><img src="docs/screenshots/04-approval.png" alt="Modal de aprovação human-in-the-loop"/></td>
+<td width="50%"><img src="docs/screenshots/05-git-diff.png" alt="Painel de diff Git estruturado"/></td>
+</tr>
+<tr>
+<td align="center"><b>🛡️ Aprovação human-in-the-loop</b><br/><sub>toda escrita/comando passa por confirmação no browser</sub></td>
+<td align="center"><b>🌿 Diff Git estruturado</b><br/><sub>por arquivo, badges Adicionado/Modificado/Removido e contagem +/−</sub></td>
+</tr>
+<tr>
+<td width="50%"><img src="docs/screenshots/06-guardian.png" alt="Consulta ao guardião ancorada nas docs"/></td>
+<td width="50%"><img src="docs/screenshots/03-reasoning.png" alt="Raciocínio visível e markdown rico"/></td>
+</tr>
+<tr>
+<td align="center"><b>🧠 Guardião ancorado nas docs</b><br/><sub>resposta citando as fontes (RAG) — ancoragem por código</sub></td>
+<td align="center"><b>💭 Raciocínio visível + markdown rico</b><br/><sub>extended thinking colapsável, tabelas e código</sub></td>
+</tr>
+<tr>
+<td width="50%"><img src="docs/screenshots/07-palette.png" alt="Command palette Ctrl+K"/></td>
+<td width="50%"><img src="docs/screenshots/01-home.png" alt="Abrir projeto e projetos recentes"/></td>
+</tr>
+<tr>
+<td align="center"><b>⌨️ Ctrl+K</b><br/><sub>command palette — busca de arquivos + ações</sub></td>
+<td align="center"><b>🗂️ Abrir projeto</b><br/><sub>picker de diretório + projetos recentes</sub></td>
+</tr>
+</table>
+
+---
+
 ## 💬 `my-agent-chat` (a UI web)
 
 <table>

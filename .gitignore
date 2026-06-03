@@ -7,6 +7,9 @@ data/
 
 # screenshots da sessão
 *.png
+.playwright-mcp/
+# exceto os screenshots versionados do README
+!docs/screenshots/*.png
 
 # identidade do recall (contém email/nome — não versionar)
 .recall/
