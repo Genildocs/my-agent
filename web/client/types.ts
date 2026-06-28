@@ -10,7 +10,7 @@ export interface Chat {
 
 export interface Message {
   id: string;
-  role: "user" | "assistant" | "tool_use" | "thinking" | "subagent" | "tester";
+  role: "user" | "assistant" | "tool_use" | "thinking" | "subagent" | "tester" | "question";
   content: string;
   timestamp: string;
   toolName?: string;
@@ -19,4 +19,5 @@ export interface Message {
   commands?: string[]; // (tester) comandos Bash executados
   done?: boolean; // (tester) terminou de rodar
   success?: boolean; // (tester) resultado final
+  answered?: boolean; // (question) usuário já respondeu
 }

@@ -19,6 +19,19 @@ class MessageQueue {
   private waiting: ((msg: UserMessage) => void) | null = null;
   private closed = false;
 
+  pushToolResult(toolUseId: string, content: string) {
+    const msg: UserMessage = {
+      type: 'user',
+      message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: toolUseId, content }] },
+    };
+    if (this.waiting) {
+      this.waiting(msg);
+      this.waiting = null;
+    } else {
+      this.messages.push(msg);
+    }
+  }
+
   push(content: string, images?: ImagePart[]) {
     // multimodal: se houver imagens, content vira um array texto + blocos image.
     const body =
@@ -68,6 +81,10 @@ export class AgentSession {
 
   sendMessage(content: string, images?: ImagePart[]) {
     this.queue.push(content, images);
+  }
+
+  sendToolResult(toolUseId: string, content: string) {
+    this.queue.pushToolResult(toolUseId, content);
   }
 
   // Interrompe o turno atual sem encerrar a sessão (streaming input mode).

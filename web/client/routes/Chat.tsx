@@ -49,6 +49,7 @@ export function Chat({
         isLoading={socket.isLoading}
         agentStatus={socket.agentStatus}
         modelLabel={modelLabel}
+        onQuestionAnswer={socket.respondQuestion}
       />
       <Composer
         onSend={socket.sendMessage}

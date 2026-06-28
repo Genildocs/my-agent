@@ -56,7 +56,7 @@ export function buildMainAgentOptions({ model, cwd, effort, onApproval }: MainAg
     // subagentes especialistas (read-only) que o agente principal invoca via Agent
     agents: subagents,
     // leitura + delegação pré-aprovadas; escrita/exec caem no canUseTool (default mode)
-    allowedTools: ['Read', 'Glob', 'Grep', 'TodoWrite', 'Agent', 'Task', CONSULTOR_TOOL],
+    allowedTools: ['Read', 'Glob', 'Grep', 'TodoWrite', 'Agent', 'Task', 'AskQuestion', CONSULTOR_TOOL],
     // guard veta o destrutivo e encaminha mutações ao canUseTool (askOnMutate)
     hooks: createGuardedHooks(cwd, { askOnMutate: true }),
     canUseTool: async (toolName, input) => {

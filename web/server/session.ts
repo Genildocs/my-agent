@@ -37,6 +37,10 @@ export class Session {
     });
   }
 
+  respondQuestion(toolUseId: string, answer: string) {
+    this.agentSession.sendToolResult(toolUseId, answer);
+  }
+
   respondApproval(id: string, approved: boolean) {
     const resolve = this.pendingApprovals.get(id);
     if (resolve) {
@@ -148,13 +152,23 @@ export class Session {
             // o texto já foi transmitido via stream_event; aqui só PERSISTE no SQLite
             chatStore.addMessage(this.chatId, { role: "assistant", content: block.text });
           } else if (block.type === "tool_use") {
-            this.broadcast({
-              type: "tool_use",
-              toolName: block.name,
-              toolId: block.id,
-              toolInput: block.input,
-              chatId: this.chatId,
-            });
+            if (block.name === "AskQuestion") {
+              this.broadcast({
+                type: "question_request",
+                toolUseId: block.id,
+                question: (block.input as any).question ?? "",
+                options: (block.input as any).options,
+                chatId: this.chatId,
+              });
+            } else {
+              this.broadcast({
+                type: "tool_use",
+                toolName: block.name,
+                toolId: block.id,
+                toolInput: block.input,
+                chatId: this.chatId,
+              });
+            }
           }
         }
       }

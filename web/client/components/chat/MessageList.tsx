@@ -1,15 +1,16 @@
 import React, { useRef, useEffect } from "react";
 import type { Message } from "../../types";
-import { ToolUseBlock, SubAgentCard, TesterCard, ThinkingBlock, MessageBubble } from "./MessageItems";
+import { ToolUseBlock, SubAgentCard, TesterCard, ThinkingBlock, MessageBubble, AskQuestionCard } from "./MessageItems";
 
 interface MessageListProps {
   messages: Message[];
   isLoading: boolean;
   agentStatus: string;
   modelLabel: string;
+  onQuestionAnswer?: (toolUseId: string, answer: string) => void;
 }
 
-export function MessageList({ messages, isLoading, agentStatus, modelLabel }: MessageListProps) {
+export function MessageList({ messages, isLoading, agentStatus, modelLabel, onQuestionAnswer }: MessageListProps) {
   const scrollRef = useRef<HTMLDivElement>(null); // container das mensagens
   const pinnedRef = useRef(true); // usuário está colado no final? (senão não puxa o scroll)
 
@@ -51,6 +52,12 @@ export function MessageList({ messages, isLoading, agentStatus, modelLabel }: Me
               <TesterCard key={msg.id} message={msg} />
             ) : msg.role === "thinking" ? (
               <ThinkingBlock key={msg.id} message={msg} />
+            ) : msg.role === "question" ? (
+              <AskQuestionCard
+                key={msg.id}
+                message={msg}
+                onAnswer={onQuestionAnswer ?? (() => {})}
+              />
             ) : (
               <MessageBubble key={msg.id} message={msg} modelLabel={modelLabel} />
             )

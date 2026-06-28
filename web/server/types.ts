@@ -56,6 +56,13 @@ export interface WSApprovalMessage {
   approved: boolean;
 }
 
+export interface WSQuestionAnswerMessage {
+  type: "question_answer";
+  chatId: string;
+  toolUseId: string;
+  answer: string;
+}
+
 // Comandos que falam com o backend.
 // - compact: aciona a compactação de contexto do SDK
 // - test: dispara o tester (query próprio, Bash liberado); args = instrução opcional
@@ -72,4 +79,5 @@ export type IncomingWSMessage =
   | WSSubscribeMessage
   | WSStopMessage
   | WSApprovalMessage
+  | WSQuestionAnswerMessage
   | WSCommandMessage;

@@ -208,6 +208,20 @@ export function useAgentSocket(opts: UseAgentSocketOpts) {
         onResultRef.current?.();
         break;
 
+      case "question_request":
+        setAgentStatus("Aguardando sua resposta...");
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: crypto.randomUUID(),
+            role: "question",
+            content: message.question,
+            timestamp: new Date().toISOString(),
+            toolInput: { toolUseId: message.toolUseId, question: message.question, options: message.options },
+          },
+        ]);
+        break;
+
       case "approval_request":
         setAgentStatus("Aguardando sua confirmação...");
         setApproval({ id: message.id, tool: message.tool, input: message.input });
@@ -274,6 +288,18 @@ export function useAgentSocket(opts: UseAgentSocketOpts) {
       handleWSMessage(lastJsonMessage);
     }
   }, [lastJsonMessage, handleWSMessage]);
+
+  const respondQuestion = useCallback((toolUseId: string, answer: string) => {
+    if (!chatId) return;
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.toolInput?.toolUseId === toolUseId
+          ? { ...m, answered: true, toolInput: { ...m.toolInput, answer } }
+          : m
+      )
+    );
+    sendJsonMessage({ type: "question_answer", chatId, toolUseId, answer });
+  }, [chatId, sendJsonMessage]);
 
   const respondApproval = useCallback((approved: boolean) => {
     if (approval && chatId) {
@@ -371,6 +397,7 @@ export function useAgentSocket(opts: UseAgentSocketOpts) {
     runTest,
     respondApproval,
     approveAlways,
+    respondQuestion,
     setMessages,
   };
 }

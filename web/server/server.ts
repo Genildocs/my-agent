@@ -333,6 +333,12 @@ wss.on("connection", (ws: WSClient) => {
           break;
         }
 
+        case "question_answer": {
+          const session = sessions.get(message.chatId);
+          if (session) session.respondQuestion(message.toolUseId, message.answer);
+          break;
+        }
+
         case "command": {
           let session: Session | undefined;
           if (message.name === "test") {
