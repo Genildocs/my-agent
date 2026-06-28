@@ -66,39 +66,65 @@ function MessageItem(props: { msg: UIMessage; spinner: string }) {
 function ApprovalCard(props: {
   approval: { id: string; tool: string; input: any }
   onRespond: (id: string, approved: boolean) => void
+  onAlways: (id: string, tool: string) => void
 }) {
   useKeyboard((k) => {
-    if (k.name === "y") props.onRespond(props.approval.id, true)
-    if (k.name === "n") props.onRespond(props.approval.id, false)
+    if (k.name === "y" || k.name === "return") props.onRespond(props.approval.id, true)
+    else if (k.name === "n" || k.name === "escape") props.onRespond(props.approval.id, false)
+    else if (k.name === "a") props.onAlways(props.approval.id, props.approval.tool)
   })
 
-  const inputPreview = () => {
+  // Mostra o que importa por tool: Bash -> o comando; Write/Edit -> o arquivo; resto -> resumo.
+  const detail = () => {
+    const i = props.approval.input ?? {}
+    if (props.approval.tool === "Bash") return String(i.command ?? "")
+    if (i.file_path) return String(i.file_path)
     try {
-      const s = JSON.stringify(props.approval.input)
-      return s.length > 120 ? s.slice(0, 117) + "..." : s
+      const s = JSON.stringify(i)
+      return s.length > 160 ? s.slice(0, 157) + "..." : s
     } catch {
-      return String(props.approval.input)
+      return String(i)
     }
   }
+
+  const lines = () => detail().split("\n").slice(0, 6)
 
   return (
     <box
       flexDirection="column"
-      borderStyle="single"
-      borderColor="#f59e0b"
-      padding={1}
+      borderStyle="rounded"
+      borderColor={COLOR.accent}
+      backgroundColor="#16181d"
+      paddingX={1}
       marginX={1}
       gap={0}
     >
-      <text fg="#f59e0b">
-        <b>⚠ Aprovação: {props.approval.tool}</b>
-      </text>
-      <text fg="#ccc" paddingLeft={1}>
-        {inputPreview()}
-      </text>
-      <text fg="#999" marginTop={1}>
-        Y  aprovar     N  recusar
-      </text>
+      <box flexDirection="row" gap={1}>
+        <text fg={COLOR.accent}>
+          <b>⚠ Aprovar</b>
+        </text>
+        <text fg={COLOR.text}>
+          <b>{props.approval.tool}</b>
+        </text>
+      </box>
+      <For each={lines()}>
+        {(ln) => (
+          <text fg={COLOR.dim} wrapMode="none">
+            {"  " + ln}
+          </text>
+        )}
+      </For>
+      <box flexDirection="row" gap={2} marginTop={1}>
+        <text fg={COLOR.assistant}>
+          <b>Y</b> aprovar
+        </text>
+        <text fg={COLOR.system}>
+          <b>N</b> recusar
+        </text>
+        <text fg={COLOR.tool}>
+          <b>A</b> sempre esta tool
+        </text>
+      </box>
     </box>
   )
 }
@@ -132,20 +158,21 @@ function AskCard(props: {
   return (
     <box
       flexDirection="column"
-      borderStyle="single"
-      borderColor="#fbbf24"
-      padding={1}
+      borderStyle="rounded"
+      borderColor={COLOR.accent}
+      backgroundColor="#16181d"
+      paddingX={1}
       marginX={1}
-      gap={1}
+      gap={0}
     >
-      <text fg="#fbbf24">
+      <text fg={COLOR.accent}>
         <b>? {q()?.question}</b>
       </text>
       <Show
         when={hasOptions()}
         fallback={
           <box flexDirection="row" gap={1}>
-            <text fg="#999">›</text>
+            <text fg={COLOR.muted}>›</text>
             <input
               onInput={(v: string) => setInputVal(v)}
               onSubmit={(v: string) => submit(v)}
@@ -157,14 +184,14 @@ function AskCard(props: {
       >
         <For each={q()?.options ?? []}>
           {(opt, i) => (
-            <text fg={i() === optIdx() ? "#fbbf24" : "#ccc"}>
+            <text fg={i() === optIdx() ? COLOR.accent : COLOR.text}>
               <Show when={i() === optIdx()} fallback={`  ${opt.label}`}>
                 <b>▸ {opt.label}</b>
               </Show>
             </text>
           )}
         </For>
-        <text fg="#888">↑↓ navegar · Enter selecionar</text>
+        <text fg={COLOR.dim} marginTop={1}>↑↓ navegar · Enter selecionar</text>
       </Show>
     </box>
   )
@@ -196,8 +223,16 @@ function Toast(props: { toast: { text: string; variant: "info" | "success" | "er
 export function ChatScreen(props: { chatId: string; cwd: string; onBack: () => void }) {
   const dims = useTerminalDimensions()
   const renderer = useRenderer()
-  const { store, sendMessage, stopAgent, sendCommand, respondApproval, respondQuestion, showToast } =
-    createWsClient(props.chatId)
+  const {
+    store,
+    sendMessage,
+    stopAgent,
+    sendCommand,
+    respondApproval,
+    respondApprovalAlways,
+    respondQuestion,
+    showToast,
+  } = createWsClient(props.chatId)
 
   let scroll: ScrollBoxRenderable
   let input: InputRenderable | undefined
@@ -308,8 +343,9 @@ export function ChatScreen(props: { chatId: string; cwd: string; onBack: () => v
   }
 
   useKeyboard((k) => {
-    // Dialog aberto: o DialogSelect dono do teclado (não processa aqui).
-    if (dialog()) return
+    // Card pendente (aprovação/pergunta) ou dialog: eles são donos do teclado.
+    // Sem isso, ESC/Ctrl+M/etc vazariam e derrubariam a aprovação em andamento.
+    if (dialog() || store.pendingApproval || store.pendingQuestion) return
 
     if (k.ctrl && k.name === "c") {
       if (store.status !== "idle") stopAgent()
@@ -434,7 +470,9 @@ export function ChatScreen(props: { chatId: string; cwd: string; onBack: () => v
 
       {/* Approval */}
       <Show when={store.pendingApproval}>
-        {(a) => <ApprovalCard approval={a()} onRespond={respondApproval} />}
+        {(a) => (
+          <ApprovalCard approval={a()} onRespond={respondApproval} onAlways={respondApprovalAlways} />
+        )}
       </Show>
 
       {/* AskUserQuestion */}

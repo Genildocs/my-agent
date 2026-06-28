@@ -45,6 +45,9 @@ export function createWsClient(chatId: string) {
 
   let ws: WebSocket
 
+  // tools que o usuário marcou como "sempre" -> auto-aprovadas no resto da sessão
+  const alwaysApprove = new Set<string>()
+
   const send = (msg: any) => {
     if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg))
   }
@@ -135,7 +138,12 @@ export function createWsClient(chatId: string) {
         break
 
       case "approval_request":
-        setStore("pendingApproval", { id: msg.id, tool: msg.tool, input: msg.input })
+        // tool marcada como "sempre" -> auto-aprova sem mostrar o card
+        if (alwaysApprove.has(msg.tool)) {
+          send({ type: "approval", chatId, id: msg.id, approved: true })
+        } else {
+          setStore("pendingApproval", { id: msg.id, tool: msg.tool, input: msg.input })
+        }
         break
 
       case "question_request":
@@ -238,10 +246,26 @@ export function createWsClient(chatId: string) {
     setStore("pendingApproval", null)
   }
 
+  // aprova agora E memoriza a tool para auto-aprovar as próximas (✓ Sempre)
+  const respondApprovalAlways = (id: string, tool: string) => {
+    alwaysApprove.add(tool)
+    send({ type: "approval", chatId, id, approved: true })
+    setStore("pendingApproval", null)
+  }
+
   const respondQuestion = (id: string, answers: Record<string, string>) => {
     send({ type: "question_answer", chatId, id, answers })
     setStore("pendingQuestion", null)
   }
 
-  return { store, sendMessage, stopAgent, sendCommand, respondApproval, respondQuestion, showToast }
+  return {
+    store,
+    sendMessage,
+    stopAgent,
+    sendCommand,
+    respondApproval,
+    respondApprovalAlways,
+    respondQuestion,
+    showToast,
+  }
 }
