@@ -4,15 +4,17 @@
 
 ### Um agente de código local sobre o **[Claude Agent SDK](https://github.com/anthropics/claude-agent-sdk-typescript)**
 
-Um chat web completo — **`my-agent-chat`** — que lê e edita o teu código, roda comandos e responde
-**ancorado na documentação oficial** do SDK via RAG. Começou como o exemplo *bug-fixing* do quickstart.
-Hoje é uma ferramenta de trabalho.
+Um chat completo — em **web** (`my-agent-chat`) e no **terminal** (`my-agent-tui`) — que lê e edita o teu
+código, roda comandos e responde **ancorado na documentação oficial** do SDK via RAG. Começou como o exemplo
+*bug-fixing* do quickstart. Hoje é uma ferramenta de trabalho.
 
 <br/>
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Claude Agent SDK](https://img.shields.io/badge/Claude_Agent_SDK-D97757?logo=anthropic&logoColor=white)](https://github.com/anthropics/claude-agent-sdk-typescript)
 [![React 18](https://img.shields.io/badge/React_18-20232A?logo=react&logoColor=61DAFB)](https://react.dev/)
+[![SolidJS](https://img.shields.io/badge/SolidJS-2C4F7C?logo=solid&logoColor=white)](https://www.solidjs.com/)
+[![OpenTUI](https://img.shields.io/badge/OpenTUI-000000?logo=zig&logoColor=F7A41D)](https://github.com/sst/opentui)
 [![Vite](https://img.shields.io/badge/Vite_5-646CFF?logo=vite&logoColor=white)](https://vitejs.dev/)
 [![Tailwind](https://img.shields.io/badge/Tailwind_3-06B6D4?logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
 [![Neon](https://img.shields.io/badge/Neon_+_pgvector-00E599?logo=postgresql&logoColor=white)](https://neon.tech/)
@@ -35,7 +37,8 @@ Hoje é uma ferramenta de trabalho.
 | 🧠 **RAG ancorado** | indexa a doc num vetor store (Jina → Neon/pgvector) e responde **só com base nas fontes** — ancoragem garantida por **código**, não por prompt |
 | 🛡️ **Segurança em 2 camadas** | *guard hook* veta o destrutivo automaticamente; `canUseTool` pede **tua confirmação** antes de cada escrita/comando (com "✓ Sempre") |
 | 💬 **Web chat rico** | `my-agent-chat` — streaming, raciocínio, diff, enhancer e mais ([abaixo](#-my-agent-chat-a-ui-web)) |
-| ⌨️ **CLI** | pergunta única, revisão de arquivo, chat no terminal |
+| 🖥️ **TUI no terminal** | `my-agent-tui` — mesmo backend, no terminal: streaming, seletores de modelo/effort/tema, command palette ([abaixo](#-my-agent-tui-a-ui-no-terminal)) |
+| ⌨️ **CLI** | pergunta única às docs (guardião + RAG) |
 
 ---
 
@@ -103,6 +106,28 @@ nunca envia sozinho.
 
 ---
 
+## 🖥️ `my-agent-tui` (a UI no terminal)
+
+Um cliente **no terminal** sobre **[OpenTUI](https://github.com/sst/opentui)** (core nativo em Zig) +
+**SolidJS**, rodado com **Bun**. Fala com o **mesmo** WebSocket server do web chat — é só outra interface do
+mesmo backend, então conversa, modelo, aprovação e RAG são idênticos.
+
+<table>
+<tr><td><b>⚡ Streaming</b></td><td>respostas token a token com <b>raciocínio visível</b>; spinner enquanto o agente trabalha</td></tr>
+<tr><td><b>🎨 Markdown</b></td><td>respostas do agente com <b>syntax highlight</b> (SyntaxStyle nativo do OpenTUI)</td></tr>
+<tr><td><b>🎛️ Seletores</b></td><td><b>modelo</b> (<code>Ctrl+M</code>), <b>effort</b> (<code>Ctrl+E</code>) e <b>tema</b> (<code>Ctrl+T</code>, com preview ao vivo) — dialogs com filtro fuzzy</td></tr>
+<tr><td><b>⌨️ Comandos</b></td><td><b>command palette</b> (<code>Ctrl+P</code>) e <b>slash menu</b> (<code>/</code>) integrado ao input</td></tr>
+<tr><td><b>🛡️ Inline</b></td><td>cards de <b>aprovação</b> (Y/N) e de <b>AskUserQuestion</b> direto no fluxo</td></tr>
+<tr><td><b>📊 Footer</b></td><td>modelo · effort · tokens · custo do turno; toasts com auto-dismiss</td></tr>
+<tr><td><b>🧭 Navegação</b></td><td><code>PgUp/PgDn</code> rolam a conversa · <code>↑↓</code> histórico de input · <code>ESC</code> volta à lista</td></tr>
+<tr><td><b>🚀 Launch</b></td><td><code>npm run tui</code> sobe o backend sozinho se não estiver no ar (e o derruba ao sair); se o web já está rodando, só conecta</td></tr>
+</table>
+
+> Os padrões de UI foram extraídos do **[OpenCode](https://github.com/sst/opencode)** (referência em produção de
+> OpenTUI), adaptados a um setup enxuto — WebSocket direto, sem o framework de orquestração deles.
+
+---
+
 ## 🏗️ Arquitetura
 
 ```
@@ -132,7 +157,17 @@ web/
     chat-store.ts SQLite: chats, mensagens (texto/thinking), imagens, prompt_examples
     uploads.ts    persistência das imagens coladas (valida tipo/tamanho/IO)
   client/         React 18 + Vite + Tailwind 3 (chat, painéis, palette, modais)
+tui/              Cliente no terminal — OpenTUI + SolidJS (Bun)
+  index.tsx       Entry: ensureServer() → createCliRenderer → render(<App/>)
+  server-bootstrap.ts  Sobe/encerra o backend automaticamente (cross-platform)
+  createWsClient.ts    Store reativo do WS: streaming, toast, aprovação, AskQuestion
+  theme.ts        Paletas reativas (dark/light/nord/dracula) + SyntaxStyle do markdown
+  components/     DialogSelect (lista fuzzy reusável: modelo/effort/tema/comandos)
+  screens/        ChatListScreen (lista) · ChatScreen (chat + dialogs + footer + slash)
 ```
+
+> ⚙️ O TUI exige `bunfig.toml` com `preload = ["@opentui/solid/preload"]` — é o que liga o transform de
+> compilação do SolidJS no Bun; sem ele a reatividade não funciona (renderiza estático).
 
 <details>
 <summary><b>🧠 Fluxo RAG — ancoragem por código</b></summary>
@@ -171,7 +206,8 @@ ação do agente
 ## 🚀 Setup
 
 **Pré-requisitos:** Node.js ≥ 20 · conta no [Neon](https://neon.tech) (free) com a extensão `vector` ·
-chaves da [Anthropic](https://console.anthropic.com) e da [Jina](https://jina.ai).
+chaves da [Anthropic](https://console.anthropic.com) e da [Jina](https://jina.ai) · **[Bun](https://bun.sh)**
+(somente para o TUI; a web e a CLI rodam só com Node).
 
 **1. `.env` (na raiz)**
 
@@ -215,6 +251,12 @@ npm run index          # lê sources/, embeda e grava no Neon
 npm run web            # sobe server (3001) + Vite (5173)  →  http://localhost:5173
 ```
 
+**Terminal (`my-agent-tui`)** — requer Bun
+
+```bash
+npm run tui            # abre o TUI; sobe o backend (3001) sozinho se não estiver no ar
+```
+
 **CLI**
 
 ```bash
@@ -233,8 +275,9 @@ npm run typecheck                              # tsc servidor (NodeNext) + clien
 | Vector store | Neon + pgvector |
 | Conversas / exemplos | SQLite (`better-sqlite3`) |
 | Servidor | Express + `ws` |
-| Cliente | React 18 + Vite 5 + Tailwind 3 · react-markdown · **Shiki** · **lucide-react** · **sonner** · react-textarea-autosize |
-| Runtime | tsx (ESM) |
+| Cliente web | React 18 + Vite 5 + Tailwind 3 · react-markdown · **Shiki** · **lucide-react** · **sonner** · react-textarea-autosize |
+| Cliente terminal | **OpenTUI** (core Zig) + **SolidJS** · rodado com **Bun** |
+| Runtime | tsx (ESM) para web/CLI · Bun para o TUI |
 
 ---
 
@@ -242,6 +285,7 @@ npm run typecheck                              # tsc servidor (NodeNext) + clien
 
 - **Local-first, single-user.** Sem autenticação, multi-tenant ou deploy de produção — feito pra rodar na tua máquina, editando os teus projetos.
 - A documentação em `sources/` pertence à **Anthropic**; não é redistribuída aqui.
-- A UI nasceu do demo oficial [`simple-chatapp`](https://github.com/anthropics/claude-agent-sdk-demos), mas a lógica de agentes e quase toda a UI foram reescritas.
+- A UI web nasceu do demo oficial [`simple-chatapp`](https://github.com/anthropics/claude-agent-sdk-demos), mas a lógica de agentes e quase toda a UI foram reescritas.
+- O TUI usa padrões de UI extraídos do [OpenCode](https://github.com/sst/opencode) (referência em produção de OpenTUI), adaptados — não copiados — a um setup enxuto.
 
 <div align="center"><sub>MIT · construído pra aprender o Agent SDK na prática — e virou ferramenta.</sub></div>
