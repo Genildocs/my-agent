@@ -116,6 +116,7 @@ mesmo backend, então conversa, modelo, aprovação e RAG são idênticos.
 <tr><td><b>⚡ Streaming</b></td><td>respostas token a token com <b>raciocínio visível</b>; spinner enquanto o agente trabalha</td></tr>
 <tr><td><b>🎨 Markdown</b></td><td>respostas do agente com <b>syntax highlight</b> (SyntaxStyle nativo do OpenTUI)</td></tr>
 <tr><td><b>🎛️ Seletores</b></td><td><b>modelo</b> (<code>Ctrl+M</code>), <b>effort</b> (<code>Ctrl+E</code>) e <b>tema</b> (<code>Ctrl+T</code>, com preview ao vivo) — dialogs com filtro fuzzy</td></tr>
+<tr><td><b>💾 Preferências</b></td><td>modelo, effort e tema <b>persistem entre sessões</b> (<code>~/.config/my-agent/config.json</code>, padrão XDG) — reabrir mantém tuas escolhas</td></tr>
 <tr><td><b>⌨️ Comandos</b></td><td><b>command palette</b> (<code>Ctrl+P</code>) e <b>slash menu</b> (<code>/</code>) integrado ao input</td></tr>
 <tr><td><b>🛡️ Inline</b></td><td>cards de <b>aprovação</b> (Y/N) e de <b>AskUserQuestion</b> direto no fluxo</td></tr>
 <tr><td><b>📊 Footer</b></td><td>modelo · effort · tokens · custo do turno; toasts com auto-dismiss</td></tr>
@@ -162,6 +163,7 @@ tui/              Cliente no terminal — OpenTUI + SolidJS (Bun)
   server-bootstrap.ts  Sobe/encerra o backend automaticamente (cross-platform)
   createWsClient.ts    Store reativo do WS: streaming, toast, aprovação, AskQuestion
   theme.ts        Paletas reativas (dark/light/nord/dracula) + SyntaxStyle do markdown
+  config.ts       Persiste tema/modelo/effort (~/.config/my-agent/config.json, XDG)
   components/     DialogSelect (lista fuzzy reusável: modelo/effort/tema/comandos)
   screens/        ChatListScreen (lista) · ChatScreen (chat + dialogs + footer + slash)
 ```
