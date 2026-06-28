@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus, MessageSquare, Pencil, Check, X, Home } from "lucide-react";
+import { Plus, MessageSquare, Pencil, Check, X, Home, Settings } from "lucide-react";
 import type { Chat } from "../types";
 
 interface ChatListProps {
@@ -10,6 +10,7 @@ interface ChatListProps {
   onDeleteChat: (chatId: string) => void;
   onRenameChat: (chatId: string, title: string) => void;
   onGoHome: () => void;
+  onSettings: () => void;
 }
 
 export function ChatList({
@@ -20,6 +21,7 @@ export function ChatList({
   onDeleteChat,
   onRenameChat,
   onGoHome,
+  onSettings,
 }: ChatListProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
@@ -130,12 +132,19 @@ export function ChatList({
       </div>
 
       {/* Footer */}
-      <div className="p-4 border-t border-gray-700">
+      <div className="p-4 border-t border-gray-700 flex items-center justify-between">
         <button
           onClick={onGoHome}
-          className="w-full text-xs text-gray-500 text-center hover:text-gray-300 transition-colors"
+          className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
         >
           my-agent-chat
+        </button>
+        <button
+          onClick={onSettings}
+          title="Configurações (providers / API keys)"
+          className="p-1.5 text-gray-500 hover:text-gray-300 hover:bg-gray-700 rounded transition-colors"
+        >
+          <Settings className="w-4 h-4" />
         </button>
       </div>
     </div>

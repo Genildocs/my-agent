@@ -17,11 +17,15 @@ import { Session } from "./session.js";
 import { UPLOADS_DIR } from "./uploads.js";
 import { enhancePrompt } from "../../src/agents/enhance.ts";
 import { logEvents } from "../../src/core/logger.ts";
+import { listProviders, saveProviderKey, deleteProviderKey, syncProviderEnv } from "./config-store.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const PORT = process.env.PORT || 3001;
+
+// Injeta no process.env as keys salvas no config (prioridade: env var > config file).
+syncProviderEnv();
 
 // Express app
 const app = express();
@@ -76,6 +80,30 @@ function getOrCreateSession(chatId: string, model?: string, cwd?: string, effort
   }
   return session;
 }
+
+// REST API: Providers — lista status de conexão de cada provider
+app.get("/api/providers", (_req, res) => {
+  res.json({ providers: listProviders() });
+});
+
+// REST API: Salva API key de um provider (body: { key: string })
+app.put("/api/providers/:id", (req, res) => {
+  const key = String(req.body?.key ?? "").trim();
+  if (!key) return res.status(400).json({ error: "key é obrigatória" });
+  try {
+    saveProviderKey(req.params.id, key);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: (e as Error).message });
+  }
+});
+
+// REST API: Remove API key de um provider do config (env vars não são afetadas)
+app.delete("/api/providers/:id", (req, res) => {
+  const result = deleteProviderKey(req.params.id);
+  if (!result.ok) return res.status(400).json({ error: result.reason });
+  res.json({ ok: true });
+});
 
 // REST API: Get all chats
 app.get("/api/chats", (req, res) => {

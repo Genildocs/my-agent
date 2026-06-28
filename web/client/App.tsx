@@ -6,7 +6,8 @@ import { ToolPanel } from "./components/ToolPanel";
 import { GitPanel } from "./components/GitPanel";
 import { TaskPanel } from "./components/TaskPanel";
 import { ApprovalModal } from "./components/ApprovalModal";
-import { getFiles } from "./lib/api";
+import { SettingsModal } from "./components/SettingsModal";
+import { getFiles, getProviders } from "./lib/api";
 import { Chat } from "./routes/Chat";
 import { Launcher } from "./routes/Launcher";
 import { useChatRoute } from "./hooks/useChatRoute";
@@ -21,8 +22,18 @@ export default function App() {
   const [effort, setEffort] = useState<string>(""); // "" = default do SDK
   const [cwd, setCwd] = useState("");
   const [rightTab, setRightTab] = useState<"tools" | "tasks" | "git">("tools");
+  const [settingsOpen, setSettingsOpen] = useState(false);
   // lista de arquivos do projeto (autocomplete @) — segue o cwd, igual a ChatWindow antiga
   const [files, setFiles] = useState<string[]>([]);
+
+  // first-run: se nenhum provider está configurado, abre settings automaticamente
+  useEffect(() => {
+    getProviders().then((providers) => {
+      if (providers.length > 0 && !providers.some((p) => p.connected)) {
+        setSettingsOpen(true);
+      }
+    });
+  }, []);
 
   // roteamento (History API), lista de chats, projetos recentes e diff do git
   const { selectedChatId, selectChat, goHome } = useChatRoute();
@@ -90,6 +101,7 @@ export default function App() {
           onDeleteChat={deleteChat}
           onRenameChat={chats.rename}
           onGoHome={goHome}
+          onSettings={() => setSettingsOpen(true)}
         />
       </div>
 
@@ -164,6 +176,9 @@ export default function App() {
           onReject={() => socket.respondApproval(false)}
         />
       )}
+
+      {/* modal de settings (providers / API keys) */}
+      <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
 
       {/* toasts (erros do servidor, etc.) */}
       <Toaster position="top-right" richColors closeButton />

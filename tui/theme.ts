@@ -95,13 +95,35 @@ export function setTheme(name: string) {
   setThemeName(name)
 }
 
-// SyntaxStyle do markdown — lazy (precisa do renderer nativo). Fixo por enquanto;
-// trocar tema muda o chrome, não o highlight de código.
+// SyntaxStyle do markdown — cobre DUAS famílias de token:
+//  - `markup.*`  → o markdown em si (heading, negrito, itálico, lista, link, code inline).
+//    Sem isso o <markdown> parseia mas não dá ênfase: negrito/itálico saem como texto comum.
+//  - tokens de código (keyword/string/...) → highlight DENTRO de blocos ```...```.
+// Theme-aware: rebuild quando o tema muda, puxando as cores `markup.*` da paleta ativa.
 let _syntax: SyntaxStyle | undefined
+let _syntaxFor: string | undefined
 export function syntaxStyle(): SyntaxStyle {
-  if (!_syntax) {
+  const name = themeName()
+  if (!_syntax || _syntaxFor !== name) {
+    const p = THEMES[name] ?? THEMES.dark
     _syntax = SyntaxStyle.fromStyles({
-      default: { fg: "#ddd" },
+      default: { fg: p.text },
+      // --- Markdown (markup) — ancorado em opentui-components-code.md ---
+      "markup.heading": { fg: p.accent, bold: true },
+      "markup.heading.1": { fg: p.accent, bold: true },
+      "markup.heading.2": { fg: p.user, bold: true },
+      "markup.heading.3": { fg: p.assistant, bold: true },
+      "markup.heading.4": { fg: p.tool, bold: true },
+      "markup.bold": { fg: p.text, bold: true },
+      "markup.strong": { fg: p.text, bold: true },
+      "markup.italic": { fg: p.text, italic: true },
+      "markup.list": { fg: p.accent },
+      "markup.quote": { fg: p.muted, italic: true },
+      "markup.link": { fg: p.user, underline: true },
+      "markup.link.url": { fg: p.user, underline: true },
+      "markup.raw": { fg: p.tester },
+      "markup.raw.block": { fg: p.tester },
+      // --- Código dentro de blocos cercados ---
       keyword: { fg: "#c792ea", bold: true },
       string: { fg: "#c3e88d" },
       number: { fg: "#f78c6c" },
@@ -112,6 +134,7 @@ export function syntaxStyle(): SyntaxStyle {
       operator: { fg: "#89ddff" },
       punctuation: { fg: "#888" },
     })
+    _syntaxFor = name
   }
   return _syntax
 }

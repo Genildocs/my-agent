@@ -50,6 +50,7 @@ function MessageItem(props: { msg: UIMessage; spinner: string }) {
             content={props.msg.content}
             syntaxStyle={syntaxStyle()}
             streaming={props.msg.streaming}
+            conceal={true}
           />
         </box>
       </Show>

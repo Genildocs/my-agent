@@ -190,6 +190,54 @@ export async function getProjects(): Promise<{ projects: RecentProject[] }> {
   }
 }
 
+// ---- Providers ----
+
+export interface Provider {
+  id: string;
+  name: string;
+  connected: boolean;
+  source: "env" | "config" | "none";
+  keyPreview: string | null;
+  docsUrl: string;
+  keyHint: string;
+}
+
+// GET /api/providers -> status de conexão de cada provider
+export async function getProviders(): Promise<Provider[]> {
+  try {
+    const res = await fetch(`${API_BASE}/providers`);
+    const data = await res.json();
+    return data.providers ?? [];
+  } catch {
+    return [];
+  }
+}
+
+// PUT /api/providers/:id -> salva API key
+export async function saveProviderKey(id: string, key: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${API_BASE}/providers/${encodeURIComponent(id)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+// DELETE /api/providers/:id -> remove API key do config
+export async function deleteProviderKey(id: string): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const res = await fetch(`${API_BASE}/providers/${encodeURIComponent(id)}`, { method: "DELETE" });
+    const data = await res.json();
+    return res.ok ? { ok: true } : { ok: false, error: data.error };
+  } catch {
+    return { ok: false, error: "Falha na requisição." };
+  }
+}
+
 // GET /api/files?cwd=... -> arquivos rastreados (autocomplete @)
 export async function getFiles(cwd: string): Promise<string[]> {
   try {

@@ -19,7 +19,7 @@ export interface Chat {
 export interface ChatMessage {
   id: string;
   chatId: string;
-  role: "user" | "assistant" | "thinking" | "tester";
+  role: "user" | "assistant" | "thinking" | "tester" | "error";
   content: string;
   timestamp: string;
   images?: string[]; // URLs /uploads/... das imagens coladas (quando houver)

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Plug, FileText, FilePen, Terminal, Search, Globe, Wrench, ChevronDown, ChevronRight, BookOpen, Bot, FlaskConical, Loader2, XCircle, CheckCircle2, Brain, Check, Copy, MessageCircle, CornerDownRight } from "lucide-react";
+import { Plug, FileText, FilePen, Terminal, Search, Globe, Wrench, ChevronDown, ChevronRight, BookOpen, Bot, FlaskConical, Loader2, XCircle, CheckCircle2, Brain, Check, Copy, MessageCircle, CornerDownRight, AlertTriangle } from "lucide-react";
 import type { Message, AskQuestionItem } from "../../types";
 import { CodeHighlight } from "./CodeBlock";
 
@@ -254,6 +254,20 @@ export function AskQuestionCard({ message, onAnswer }: {
             </button>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+// Erro do servidor (API key inválida, timeout, etc.) — persistido no histórico e
+// exibido inline no chat para aparecer também após reload de página.
+export function ErrorCard({ message }: { message: Message }) {
+  return (
+    <div className="flex items-start gap-2 my-1 px-3 py-2 rounded-lg border border-red-200 bg-red-50/60">
+      <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-red-500" />
+      <div className="min-w-0">
+        <span className="text-xs font-semibold text-red-700 block mb-0.5">Erro do servidor</span>
+        <p className="text-xs text-red-600 break-words">{message.content}</p>
       </div>
     </div>
   );

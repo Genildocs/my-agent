@@ -35,6 +35,7 @@ código, roda comandos e responde **ancorado na documentação oficial** do SDK 
 |---|---|
 | 🤖 **Agente de código** | lê (`Read`/`Glob`/`Grep`), edita (`Edit`/`Write`), roda comandos (`Bash`) e consulta um **guardião** ancorado nas docs |
 | 🧠 **RAG ancorado** | indexa a doc num vetor store (Jina → Neon/pgvector) e responde **só com base nas fontes** — ancoragem garantida por **código**, não por prompt |
+| 🔑 **Configuração de providers** | chave da Anthropic via variável de ambiente, `.env` ou **UI web (⚙️ Settings)** — salva em `~/.config/my-agent/config.json`, ativa sem reiniciar |
 | 🛡️ **Segurança em 2 camadas** | *guard hook* veta o destrutivo automaticamente; `canUseTool` pede **tua confirmação** antes de cada escrita/comando (com "✓ Sempre") |
 | 💬 **Web chat rico** | `my-agent-chat` — streaming, raciocínio, diff, enhancer e mais ([abaixo](#-my-agent-chat-a-ui-web)) |
 | 🖥️ **TUI no terminal** | `my-agent-tui` — mesmo backend, no terminal: streaming, seletores de modelo/effort/tema, command palette ([abaixo](#-my-agent-tui-a-ui-no-terminal)) |
@@ -95,6 +96,7 @@ código, roda comandos e responde **ancorado na documentação oficial** do SDK 
 <tr><td><b>🔍 Atalhos</b></td><td><b>Ctrl+K</b> command palette (busca arquivos + ações)</td></tr>
 <tr><td><b>🗂️ Sessões</b></td><td>renomear/arquivar, retomar contexto, persistência em <b>SQLite</b></td></tr>
 <tr><td><b>🔔 Feedback</b></td><td>aprovação human-in-the-loop, toasts, <b>medidor de uso de contexto</b>, custo/tokens por turno</td></tr>
+<tr><td><b>⚙️ Settings</b></td><td>modal de providers — configura <code>ANTHROPIC_API_KEY</code> pela UI, salva em <code>~/.config/my-agent/config.json</code>; abre automaticamente se nenhum provider estiver configurado</td></tr>
 </table>
 
 ### ✨ Prompt enhancer (com aprendizado)
@@ -114,7 +116,8 @@ mesmo backend, então conversa, modelo, aprovação e RAG são idênticos.
 
 <table>
 <tr><td><b>⚡ Streaming</b></td><td>respostas token a token com <b>raciocínio visível</b>; spinner enquanto o agente trabalha</td></tr>
-<tr><td><b>🎨 Markdown</b></td><td>respostas do agente com <b>syntax highlight</b> (SyntaxStyle nativo do OpenTUI)</td></tr>
+<tr><td><b>🎨 Markdown</b></td><td>renderização completa via tree-sitter: <b>headings, negrito, itálico, listas, quotes, links e code blocks</b> com syntax highlight — conceal ativo (marcação oculta)</td></tr>
+<tr><td><b>🔤 Linguagens</b></td><td>syntax highlight para <b>Python, Rust, Go, Bash/sh, C, C++, JSON, YAML, TOML</b> (parsers WASM via tree-sitter, carregados sob demanda) + JS/TS/Markdown built-in</td></tr>
 <tr><td><b>🎛️ Seletores</b></td><td><b>modelo</b> (<code>Ctrl+M</code>), <b>effort</b> (<code>Ctrl+E</code>) e <b>tema</b> (<code>Ctrl+T</code>, com preview ao vivo) — dialogs com filtro fuzzy</td></tr>
 <tr><td><b>💾 Preferências</b></td><td>modelo, effort e tema <b>persistem entre sessões</b> (<code>~/.config/my-agent/config.json</code>, padrão XDG) — reabrir mantém tuas escolhas</td></tr>
 <tr><td><b>⌨️ Comandos</b></td><td><b>command palette</b> (<code>Ctrl+P</code>) e <b>slash menu</b> (<code>/</code>) integrado ao input</td></tr>
@@ -159,11 +162,12 @@ web/
     uploads.ts    persistência das imagens coladas (valida tipo/tamanho/IO)
   client/         React 18 + Vite + Tailwind 3 (chat, painéis, palette, modais)
 tui/              Cliente no terminal — OpenTUI + SolidJS (Bun)
-  index.tsx       Entry: ensureServer() → createCliRenderer → render(<App/>)
+  index.tsx       Entry: ensureServer() → addDefaultParsers(extraParsers) → createCliRenderer → render(<App/>)
   server-bootstrap.ts  Sobe/encerra o backend automaticamente (cross-platform)
   createWsClient.ts    Store reativo do WS: streaming, toast, aprovação, AskQuestion
-  theme.ts        Paletas reativas (dark/light/nord/dracula) + SyntaxStyle do markdown
+  theme.ts        Paletas reativas (dark/light/nord/dracula) + SyntaxStyle: markup.* (markdown) + tokens de código
   config.ts       Persiste tema/modelo/effort (~/.config/my-agent/config.json, XDG)
+  parsers-config.ts    Linguagens extras via tree-sitter WASM (Python/Rust/Go/Bash/C/C++/JSON/YAML/TOML)
   components/     DialogSelect (lista fuzzy reusável: modelo/effort/tema/comandos)
   screens/        ChatListScreen (lista) · ChatScreen (chat + dialogs + footer + slash)
 ```
@@ -211,11 +215,26 @@ ação do agente
 chaves da [Anthropic](https://console.anthropic.com) e da [Jina](https://jina.ai) · **[Bun](https://bun.sh)**
 (somente para o TUI; a web e a CLI rodam só com Node).
 
-**1. `.env` (na raiz)**
+**1. Chaves de API**
+
+O SDK lê as credenciais na seguinte ordem de prioridade:
+
+```
+1. Variável de ambiente do sistema   →  export ANTHROPIC_API_KEY=sk-ant-...
+2. Interface web (⚙️ Settings)       →  salvo em ~/.config/my-agent/config.json
+3. Arquivo .env na raiz              →  DATABASE_URL, JINA_API_KEY, etc.
+```
+
+> Se a `ANTHROPIC_API_KEY` já estiver no ambiente do sistema (`.bashrc`, `.zshrc`, variável de usuário no Windows), **não precisa de `.env`** — o servidor sincroniza automaticamente na inicialização via `syncProviderEnv()`.
+>
+> Para configurar pela UI: abra o chat web → clique no ícone **⚙️** na sidebar → cole a chave no campo Anthropic → Salvar. A chave é persistida em `~/.config/my-agent/config.json` e ativada imediatamente sem reiniciar o servidor.
+
+**`.env` (opcional, apenas para RAG e overrides)**
 
 ```bash
-DATABASE_URL=postgresql://...   # connection string do Neon
-# ANTHROPIC_API_KEY e JINA_API_KEY podem estar no ambiente ou no .env
+DATABASE_URL=postgresql://...   # connection string do Neon (obrigatório para o guardião)
+JINA_API_KEY=jina_...           # embeddings (obrigatório para o guardião)
+# ANTHROPIC_API_KEY só precisa aqui se não estiver no ambiente do sistema
 ```
 
 **2. Banco (uma vez)** — crie a tabela do vetor store no Neon:

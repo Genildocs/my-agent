@@ -1,11 +1,16 @@
 import path from "node:path"
 import { statSync } from "node:fs"
 import { render } from "@opentui/solid"
-import { createCliRenderer } from "@opentui/core"
+import { createCliRenderer, addDefaultParsers } from "@opentui/core"
+import { extraParsers } from "./parsers-config"
 import { App } from "./App"
 import { ensureServer } from "./server-bootstrap"
 import { setTheme } from "./theme"
 import { getConfig } from "./config"
+
+// Registra linguagens extras de syntax highlight (Python, Rust, Go, Bash…)
+// carregadas sob demanda pelo tree-sitter worker via URL.
+addDefaultParsers(extraParsers)
 
 // Aplica o tema salvo antes do primeiro render (setTheme ignora nome inválido).
 const savedTheme = getConfig().theme

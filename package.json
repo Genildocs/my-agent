@@ -7,7 +7,7 @@
     "ask": "tsx --env-file=.env src/agents/guardian-of-library.ts",
     "index": "tsx --env-file=.env src/rag/index.ts",
     "typecheck": "tsc -p tsconfig.json && tsc -p web/client/tsconfig.json",
-    "web": "concurrently -n server,client -c green,cyan \"npm:web:server\" \"npm:web:client\"",
+    "web": "concurrently -n server,client -c green,cyan \"npm:web:server\" \"wait-on http://localhost:3001 && npm run web:client\"",
     "web:server": "tsx --env-file=.env web/server/server.ts",
     "web:client": "cd web && vite",
     "tui": "bun tui/index.tsx"
@@ -31,6 +31,7 @@
     "solid-js": "^1.9.13",
     "sonner": "^2.0.7",
     "uuid": "^10.0.0",
+    "web-tree-sitter": "0.25.10",
     "ws": "^8.21.0",
     "zod": "^4.4.3"
   },
@@ -51,6 +52,7 @@
     "tailwindcss": "^3.4.19",
     "tsx": "^4.22.3",
     "typescript": "^6.0.3",
-    "vite": "^5.4.21"
+    "vite": "^5.4.21",
+    "wait-on": "^9.0.10"
   }
 }

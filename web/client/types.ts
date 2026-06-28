@@ -19,7 +19,7 @@ export interface AskQuestionItem {
 
 export interface Message {
   id: string;
-  role: "user" | "assistant" | "tool_use" | "thinking" | "subagent" | "tester" | "question";
+  role: "user" | "assistant" | "tool_use" | "thinking" | "subagent" | "tester" | "question" | "error";
   content: string;
   timestamp: string;
   toolName?: string;

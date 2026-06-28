@@ -1,6 +1,6 @@
 import React, { useRef, useEffect } from "react";
 import type { Message } from "../../types";
-import { ToolUseBlock, SubAgentCard, TesterCard, ThinkingBlock, MessageBubble, AskQuestionCard } from "./MessageItems";
+import { ToolUseBlock, SubAgentCard, TesterCard, ThinkingBlock, MessageBubble, AskQuestionCard, ErrorCard } from "./MessageItems";
 
 interface MessageListProps {
   messages: Message[];
@@ -58,6 +58,8 @@ export function MessageList({ messages, isLoading, agentStatus, modelLabel, onQu
                 message={msg}
                 onAnswer={onQuestionAnswer ?? (() => {})}
               />
+            ) : msg.role === "error" ? (
+              <ErrorCard key={msg.id} message={msg} />
             ) : (
               <MessageBubble key={msg.id} message={msg} modelLabel={modelLabel} />
             )

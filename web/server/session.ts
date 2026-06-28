@@ -80,8 +80,30 @@ export class Session {
         this.handleSDKMessage(message);
       }
     } catch (error) {
+      const msg = (error as Error).message || String(error);
       console.error(`Error in session ${this.chatId}:`, error);
-      this.broadcastError((error as Error).message);
+
+      // Persiste no SQLite para aparecer no histórico após reload de página.
+      try { chatStore.addMessage(this.chatId, { role: "error", content: msg }); } catch {}
+
+      // Avisa os subscribers conectados agora.
+      this.broadcastError(msg);
+
+      // Garante que o cliente resete isLoading mesmo que o evento "error" chegue
+      // numa reconexão futura (o cliente trata "result" com success:false como fim de turno).
+      this.broadcast({ type: "result", success: false, chatId: this.chatId });
+
+      // Recria o AgentSession para que a próxima mensagem do usuário funcione
+      // (o iterator do query() encerrou com erro e não pode ser reusado).
+      this.isListening = false;
+      this.agentSession.close();
+      this.agentSession = new AgentSession(
+        this.model,
+        (req) => this.requestApproval(req),
+        (qs) => this.requestQuestion(qs),
+        this.cwd,
+        this.effort,
+      );
     }
   }
 
