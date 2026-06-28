@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# Launcher global do my-agent-tui.
+#
+# Abre o TUI a partir de QUALQUER diretório: o agente opera no diretório de onde
+# você chamou ($PWD), não na pasta do repo. O TUI sobe o backend sozinho se preciso.
+#
+# Instalar no PATH (uma vez):
+#   ln -s "$(pwd)/bin/my-agent-tui" ~/.local/bin/my-agent-tui   # rodar de dentro do repo
+# Depois, em qualquer lugar:
+#   cd ~/meu-projeto && my-agent-tui
+
+set -euo pipefail
+
+# Resolve a raiz do repo a partir da localização REAL deste script (segue symlinks).
+SOURCE="${BASH_SOURCE[0]}"
+while [ -h "$SOURCE" ]; do
+  DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+  SOURCE="$(readlink "$SOURCE")"
+  [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+REPO="$(cd -P "$(dirname "$SOURCE")/.." && pwd)"
+
+# Diretório-alvo: argumento explícito, senão o diretório atual.
+TARGET="${1:-$PWD}"
+
+exec bun "$REPO/tui/index.tsx" "$TARGET"

@@ -1,7 +1,20 @@
+import path from "node:path"
+import { statSync } from "node:fs"
 import { render } from "@opentui/solid"
 import { createCliRenderer } from "@opentui/core"
 import { App } from "./App"
 import { ensureServer } from "./server-bootstrap"
+
+// Diretório onde o AGENTE vai operar. Vem de argv[2] (o launcher global passa o
+// $PWD de onde você chamou) ou do process.cwd(). O backend revalida e recusa
+// caminho inexistente, mas checamos aqui pra dar erro claro antes de tomar a tela.
+const targetCwd = path.resolve(process.argv[2] || process.cwd())
+try {
+  if (!statSync(targetCwd).isDirectory()) throw new Error("não é um diretório")
+} catch {
+  console.error(`\n  ⚠ Diretório inválido: ${targetCwd}\n`)
+  process.exit(1)
+}
 
 // 1) Garante o backend de pé (sobe sozinho se preciso) ANTES de tomar o terminal.
 let cleanup = () => {}
@@ -25,4 +38,4 @@ const renderer = await createCliRenderer({
 renderer.once("destroy", cleanup)
 process.on("exit", cleanup)
 
-await render(() => <App />, renderer)
+await render(() => <App cwd={targetCwd} />, renderer)

@@ -193,7 +193,7 @@ function Toast(props: { toast: { text: string; variant: "info" | "success" | "er
   )
 }
 
-export function ChatScreen(props: { chatId: string; onBack: () => void }) {
+export function ChatScreen(props: { chatId: string; cwd: string; onBack: () => void }) {
   const dims = useTerminalDimensions()
   const renderer = useRenderer()
   const { store, sendMessage, stopAgent, sendCommand, respondApproval, respondQuestion, showToast } =
@@ -357,7 +357,7 @@ export function ChatScreen(props: { chatId: string; onBack: () => void }) {
     }
     const text = v.trim()
     if (!text || store.status !== "idle") return
-    sendMessage(text, { model: model(), effort: effort() })
+    sendMessage(text, { model: model(), effort: effort(), cwd: props.cwd })
     sent.push(text)
     histIdx = -1
     if (input) input.value = ""
@@ -381,6 +381,14 @@ export function ChatScreen(props: { chatId: string; onBack: () => void }) {
       ? `${spinner()} thinking`
       : "idle"
 
+  // basename do cwd (cross-platform), com ~ pro home — onde o agente opera
+  const cwdLabel = () => {
+    const home = process.env.HOME || process.env.USERPROFILE || ""
+    if (home && props.cwd === home) return "~"
+    const base = props.cwd.replace(/[/\\]+$/, "").split(/[/\\]/).pop()
+    return base ? `📁 ${base}` : props.cwd
+  }
+
   const costLabel = () =>
     store.lastResult?.cost ? `$${store.lastResult.cost.toFixed(4)}` : ""
   const tokensLabel = () => {
@@ -397,6 +405,7 @@ export function ChatScreen(props: { chatId: string; onBack: () => void }) {
         <text fg={COLOR.user}>
           <b>my-agent</b>
         </text>
+        <text fg={COLOR.dim}>{cwdLabel()}</text>
         <text fg={COLOR.accent}>{modelLabel(model())}</text>
         <Show when={effort()}>
           <text fg={COLOR.tool}>{effortLabel(effort())}</text>

@@ -1,5 +1,8 @@
 {
   "type": "module",
+  "bin": {
+    "my-agent-tui": "bin/my-agent-tui"
+  },
   "scripts": {
     "ask": "tsx --env-file=.env src/agents/guardian-of-library.ts",
     "index": "tsx --env-file=.env src/rag/index.ts",

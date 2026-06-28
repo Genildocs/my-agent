@@ -3,7 +3,7 @@ import { useTerminalDimensions } from "@opentui/solid"
 import { ChatListScreen } from "./screens/ChatListScreen"
 import { ChatScreen } from "./screens/ChatScreen"
 
-export function App() {
+export function App(props: { cwd: string }) {
   const dims = useTerminalDimensions()
   const [chatId, setChatId] = createSignal<string | null>(null)
 
@@ -13,7 +13,7 @@ export function App() {
         when={chatId()}
         fallback={<ChatListScreen onSelect={setChatId} />}
       >
-        {(id) => <ChatScreen chatId={id()} onBack={() => setChatId(null)} />}
+        {(id) => <ChatScreen chatId={id()} cwd={props.cwd} onBack={() => setChatId(null)} />}
       </Show>
     </box>
   )

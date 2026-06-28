@@ -254,8 +254,20 @@ npm run web            # sobe server (3001) + Vite (5173)  →  http://localhost
 **Terminal (`my-agent-tui`)** — requer Bun
 
 ```bash
-npm run tui            # abre o TUI; sobe o backend (3001) sozinho se não estiver no ar
+npm run tui            # abre o TUI no diretório do repo; sobe o backend (3001) sozinho
 ```
+
+**Comando global** — abrir o TUI em **qualquer diretório** (o agente opera ali):
+
+```bash
+ln -s "$PWD/bin/my-agent-tui" ~/.local/bin/my-agent-tui   # rodar de dentro do repo, uma vez
+# depois, em qualquer lugar:
+cd ~/meu-projeto && my-agent-tui      # agente opera em ~/meu-projeto
+my-agent-tui /outro/caminho           # ou passe o diretório explicitamente
+```
+
+> O launcher captura o `$PWD` de onde você chamou e envia como `cwd` ao backend (que o valida e registra
+> como projeto recente). O diretório atual aparece no header do TUI.
 
 **CLI**
 
