@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { WSClient, ChatMessage } from "./types.js";
-import { AgentSession, type ImagePart } from "./ai-client.js";
+import { AgentSession, type ImagePart, type AskQuestionItem } from "./ai-client.js";
 import { runTester } from "../../src/agents/tester.ts";
 import { chatStore } from "./chat-store.js";
 import { saveImages } from "./uploads.js";
@@ -18,13 +18,21 @@ export class Session {
   private pendingHistory?: ChatMessage[];
   // aprovações de tool pendentes (human-in-the-loop via canUseTool)
   private pendingApprovals = new Map<string, (ok: boolean) => void>();
+  // perguntas de esclarecimento pendentes (AskUserQuestion via canUseTool)
+  private pendingQuestions = new Map<string, (answers: Record<string, string>) => void>();
 
   constructor(chatId: string, model = "claude-sonnet-4-6", history?: ChatMessage[], cwd = process.cwd(), effort?: string) {
     this.chatId = chatId;
     this.model = model;
     this.cwd = cwd;
     this.effort = effort;
-    this.agentSession = new AgentSession(model, (req) => this.requestApproval(req), cwd, effort);
+    this.agentSession = new AgentSession(
+      model,
+      (req) => this.requestApproval(req),
+      (qs) => this.requestQuestion(qs),
+      cwd,
+      effort,
+    );
     this.pendingHistory = history && history.length ? history : undefined;
   }
 
@@ -37,8 +45,21 @@ export class Session {
     });
   }
 
-  respondQuestion(toolUseId: string, answer: string) {
-    this.agentSession.sendToolResult(toolUseId, answer);
+  // Transmite as perguntas (AskUserQuestion) ao browser e espera as respostas.
+  private requestQuestion(questions: AskQuestionItem[]): Promise<Record<string, string>> {
+    return new Promise((resolve) => {
+      const id = randomUUID();
+      this.pendingQuestions.set(id, resolve);
+      this.broadcast({ type: "question_request", id, questions, chatId: this.chatId });
+    });
+  }
+
+  respondQuestion(id: string, answers: Record<string, string>) {
+    const resolve = this.pendingQuestions.get(id);
+    if (resolve) {
+      resolve(answers);
+      this.pendingQuestions.delete(id);
+    }
   }
 
   respondApproval(id: string, approved: boolean) {
@@ -152,23 +173,16 @@ export class Session {
             // o texto já foi transmitido via stream_event; aqui só PERSISTE no SQLite
             chatStore.addMessage(this.chatId, { role: "assistant", content: block.text });
           } else if (block.type === "tool_use") {
-            if (block.name === "AskQuestion") {
-              this.broadcast({
-                type: "question_request",
-                toolUseId: block.id,
-                question: (block.input as any).question ?? "",
-                options: (block.input as any).options,
-                chatId: this.chatId,
-              });
-            } else {
-              this.broadcast({
-                type: "tool_use",
-                toolName: block.name,
-                toolId: block.id,
-                toolInput: block.input,
-                chatId: this.chatId,
-              });
-            }
+            // AskUserQuestion é resolvida no canUseTool (vira question_request);
+            // não emitir card de tool genérico para ela.
+            if (block.name === "AskUserQuestion") continue;
+            this.broadcast({
+              type: "tool_use",
+              toolName: block.name,
+              toolId: block.id,
+              toolInput: block.input,
+              chatId: this.chatId,
+            });
           }
         }
       }

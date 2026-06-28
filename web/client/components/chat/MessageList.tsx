@@ -7,7 +7,7 @@ interface MessageListProps {
   isLoading: boolean;
   agentStatus: string;
   modelLabel: string;
-  onQuestionAnswer?: (toolUseId: string, answer: string) => void;
+  onQuestionAnswer?: (id: string, answers: Record<string, string>) => void;
 }
 
 export function MessageList({ messages, isLoading, agentStatus, modelLabel, onQuestionAnswer }: MessageListProps) {

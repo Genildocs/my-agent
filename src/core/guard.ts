@@ -50,6 +50,18 @@ export function createGuardedHooks(cwd: string, opts: { askOnMutate?: boolean } 
       };
     }
 
+    // AskUserQuestion: sempre encaminha ao canUseTool (a resposta vem do usuário lá).
+    // Sem o 'ask', o hook retornaria {} -> resolve 'allow' e curto-circuita o canUseTool
+    // (mesmo mecanismo de askOnMutate), e a pergunta nunca chegaria ao browser.
+    if (pre.tool_name === 'AskUserQuestion') {
+      return {
+        hookSpecificOutput: {
+          hookEventName: pre.hook_event_name,
+          permissionDecision: 'ask',
+        },
+      };
+    }
+
     // não-perigoso, mas mutante: encaminha para o prompt (canUseTool) em vez de auto-allow
     if (opts.askOnMutate && MUTATING_TOOLS.includes(pre.tool_name)) {
       return {

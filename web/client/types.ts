@@ -8,6 +8,15 @@ export interface Chat {
   cwd?: string; // diretório de trabalho do chat
 }
 
+// Formato da tool nativa AskUserQuestion (ver sources/user-input.md).
+export interface AskQuestionOption { label: string; description?: string; }
+export interface AskQuestionItem {
+  question: string;
+  header?: string;
+  options?: AskQuestionOption[];
+  multiSelect?: boolean;
+}
+
 export interface Message {
   id: string;
   role: "user" | "assistant" | "tool_use" | "thinking" | "subagent" | "tester" | "question";

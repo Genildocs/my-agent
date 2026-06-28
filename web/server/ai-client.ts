@@ -3,9 +3,9 @@
 // turno vivo. A DEFINIÇÃO do agente (system prompt, tools, subagentes, política de
 // aprovação) vive em src/agents/main-agent.ts e é injetada via buildMainAgentOptions.
 import { query } from '@anthropic-ai/claude-agent-sdk';
-import { buildMainAgentOptions, type ApprovalFn } from '../../src/agents/main-agent.ts';
+import { buildMainAgentOptions, type ApprovalFn, type QuestionFn, type AskQuestionItem } from '../../src/agents/main-agent.ts';
 
-export type { ApprovalFn }; // re-export p/ compat com quem importa daqui
+export type { ApprovalFn, QuestionFn, AskQuestionItem }; // re-export p/ quem importa daqui
 
 export interface ImagePart {
   media_type: string;
@@ -18,19 +18,6 @@ class MessageQueue {
   private messages: UserMessage[] = [];
   private waiting: ((msg: UserMessage) => void) | null = null;
   private closed = false;
-
-  pushToolResult(toolUseId: string, content: string) {
-    const msg: UserMessage = {
-      type: 'user',
-      message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: toolUseId, content }] },
-    };
-    if (this.waiting) {
-      this.waiting(msg);
-      this.waiting = null;
-    } else {
-      this.messages.push(msg);
-    }
-  }
 
   push(content: string, images?: ImagePart[]) {
     // multimodal: se houver imagens, content vira um array texto + blocos image.
@@ -70,21 +57,17 @@ export class AgentSession {
   private q: ReturnType<typeof query>;
   private outputIterator: AsyncIterator<any>;
 
-  constructor(model = 'claude-sonnet-4-6', onApproval?: ApprovalFn, cwd = process.cwd(), effort?: string) {
+  constructor(model = 'claude-sonnet-4-6', onApproval?: ApprovalFn, onQuestion?: QuestionFn, cwd = process.cwd(), effort?: string) {
     // a config do agente vem do domínio; aqui só plugamos a fila (transporte).
     this.q = query({
       prompt: this.queue as any,
-      options: buildMainAgentOptions({ model, cwd, effort, onApproval }),
+      options: buildMainAgentOptions({ model, cwd, effort, onApproval, onQuestion }),
     });
     this.outputIterator = this.q[Symbol.asyncIterator]();
   }
 
   sendMessage(content: string, images?: ImagePart[]) {
     this.queue.push(content, images);
-  }
-
-  sendToolResult(toolUseId: string, content: string) {
-    this.queue.pushToolResult(toolUseId, content);
   }
 
   // Interrompe o turno atual sem encerrar a sessão (streaming input mode).

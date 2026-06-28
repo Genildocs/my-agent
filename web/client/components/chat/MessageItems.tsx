@@ -2,7 +2,7 @@ import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Plug, FileText, FilePen, Terminal, Search, Globe, Wrench, ChevronDown, ChevronRight, BookOpen, Bot, FlaskConical, Loader2, XCircle, CheckCircle2, Brain, Check, Copy, MessageCircle, CornerDownRight } from "lucide-react";
-import type { Message } from "../../types";
+import type { Message, AskQuestionItem } from "../../types";
 import { CodeHighlight } from "./CodeBlock";
 
 function ToolIcon({ name, className }: { name?: string; className?: string }) {
@@ -149,66 +149,109 @@ export function TesterCard({ message }: { message: Message }) {
   );
 }
 
-// Card de pergunta do agente (AskQuestion). Ativo: mostra input/opções. Respondido: mostra a resposta.
+// Card de pergunta do agente (AskUserQuestion). Renderiza 1-4 perguntas, cada uma com
+// opções (single/multi-select) + texto livre. Ao enviar, monta { [pergunta]: label(s) }.
 export function AskQuestionCard({ message, onAnswer }: {
   message: Message;
-  onAnswer: (toolUseId: string, answer: string) => void;
+  onAnswer: (id: string, answers: Record<string, string>) => void;
 }) {
-  const [value, setValue] = useState("");
-  const toolUseId = String(message.toolInput?.toolUseId ?? "");
-  const options = message.toolInput?.options as string[] | undefined;
+  const id = String(message.toolInput?.id ?? "");
+  const questions = (message.toolInput?.questions ?? []) as AskQuestionItem[];
   const answered = message.answered;
-  const answerText = message.toolInput?.answer as string | undefined;
+  const savedAnswers = (message.toolInput?.answers ?? {}) as Record<string, string>;
+
+  // seleção por índice de pergunta -> labels marcados; e texto livre por pergunta
+  const [selected, setSelected] = useState<Record<number, string[]>>({});
+  const [freeText, setFreeText] = useState<Record<number, string>>({});
+
+  const toggle = (qi: number, label: string, multi: boolean) => {
+    setSelected((prev) => {
+      const cur = prev[qi] ?? [];
+      if (multi) {
+        return { ...prev, [qi]: cur.includes(label) ? cur.filter((l) => l !== label) : [...cur, label] };
+      }
+      return { ...prev, [qi]: [label] };
+    });
+  };
+
+  // resposta efetiva: texto livre (se preenchido) tem precedência sobre os botões
+  const answerFor = (qi: number): string => {
+    const txt = (freeText[qi] ?? "").trim();
+    if (txt) return txt;
+    return (selected[qi] ?? []).join(", ");
+  };
+
+  const allAnswered = questions.every((_, qi) => answerFor(qi).length > 0);
+
+  const submit = () => {
+    const answers: Record<string, string> = {};
+    questions.forEach((q, qi) => { answers[q.question] = answerFor(qi); });
+    onAnswer(id, answers);
+  };
 
   return (
     <div className={`my-1 rounded-lg border ${answered ? "border-amber-100 bg-amber-50/30" : "border-amber-200 bg-amber-50/60"}`}>
       <div className="flex items-start gap-2 px-3 py-2">
         <MessageCircle className={`w-4 h-4 shrink-0 mt-0.5 ${answered ? "text-amber-300" : "text-amber-500"}`} />
-        <div className="flex-1 min-w-0">
-          <p className={`text-sm leading-relaxed ${answered ? "text-gray-500" : "text-gray-800"}`}>
-            {message.content}
-          </p>
-          {answered ? (
-            <div className="flex items-center gap-1.5 mt-1.5 text-xs text-amber-700">
-              <CornerDownRight className="w-3 h-3 shrink-0" />
-              <span className="truncate">{answerText}</span>
+        <div className="flex-1 min-w-0 space-y-3">
+          {questions.map((q, qi) => (
+            <div key={qi}>
+              {q.header && (
+                <span className="inline-block mb-1 px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide text-amber-700 bg-amber-100">
+                  {q.header}
+                </span>
+              )}
+              <p className={`text-sm leading-relaxed ${answered ? "text-gray-500" : "text-gray-800"}`}>
+                {q.question}
+              </p>
+
+              {answered ? (
+                <div className="flex items-center gap-1.5 mt-1.5 text-xs text-amber-700">
+                  <CornerDownRight className="w-3 h-3 shrink-0" />
+                  <span className="truncate">{savedAnswers[q.question] ?? "—"}</span>
+                </div>
+              ) : (
+                <>
+                  {q.options && q.options.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 mt-2">
+                      {q.options.map((opt) => {
+                        const on = (selected[qi] ?? []).includes(opt.label);
+                        return (
+                          <button
+                            key={opt.label}
+                            title={opt.description}
+                            onClick={() => toggle(qi, opt.label, !!q.multiSelect)}
+                            className={`px-2.5 py-1 text-xs font-medium rounded-md border transition-colors ${
+                              on
+                                ? "border-amber-500 bg-amber-500 text-white"
+                                : "border-amber-300 bg-white text-amber-700 hover:bg-amber-100"
+                            }`}
+                          >
+                            {opt.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                  <input
+                    value={freeText[qi] ?? ""}
+                    onChange={(e) => setFreeText((p) => ({ ...p, [qi]: e.target.value }))}
+                    placeholder={q.options?.length ? "Outro (texto livre)..." : "Sua resposta..."}
+                    className="mt-2 w-full text-sm px-2.5 py-1 rounded-md border border-amber-300 bg-white focus:outline-none focus:ring-1 focus:ring-amber-400"
+                  />
+                </>
+              )}
             </div>
-          ) : options && options.length > 0 ? (
-            <div className="flex flex-wrap gap-1.5 mt-2">
-              {options.map((opt) => (
-                <button
-                  key={opt}
-                  onClick={() => onAnswer(toolUseId, opt)}
-                  className="px-2.5 py-1 text-xs font-medium rounded-md border border-amber-300 bg-white text-amber-700 hover:bg-amber-100 transition-colors"
-                >
-                  {opt}
-                </button>
-              ))}
-            </div>
-          ) : (
-            <form
-              className="flex gap-2 mt-2"
-              onSubmit={(e) => {
-                e.preventDefault();
-                const trimmed = value.trim();
-                if (trimmed) { onAnswer(toolUseId, trimmed); setValue(""); }
-              }}
+          ))}
+
+          {!answered && (
+            <button
+              onClick={submit}
+              disabled={!allAnswered}
+              className="px-3 py-1 text-xs font-medium rounded-md bg-amber-500 text-white hover:bg-amber-600 disabled:opacity-40 transition-colors"
             >
-              <input
-                autoFocus
-                value={value}
-                onChange={(e) => setValue(e.target.value)}
-                placeholder="Sua resposta..."
-                className="flex-1 min-w-0 text-sm px-2.5 py-1 rounded-md border border-amber-300 bg-white focus:outline-none focus:ring-1 focus:ring-amber-400"
-              />
-              <button
-                type="submit"
-                disabled={!value.trim()}
-                className="px-3 py-1 text-xs font-medium rounded-md bg-amber-500 text-white hover:bg-amber-600 disabled:opacity-40 transition-colors"
-              >
-                Enviar
-              </button>
-            </form>
+              Enviar {questions.length > 1 ? "respostas" : "resposta"}
+            </button>
           )}
         </div>
       </div>

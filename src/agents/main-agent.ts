@@ -34,17 +34,29 @@ const NEEDS_APPROVAL = new Set(['Write', 'Edit', 'MultiEdit', 'Bash', 'NotebookE
 
 export type ApprovalFn = (req: { tool: string; input: any }) => Promise<boolean>;
 
+// Formato da tool nativa AskUserQuestion (ver sources/user-input.md).
+export interface AskQuestionOption { label: string; description?: string; }
+export interface AskQuestionItem {
+  question: string;
+  header?: string;
+  options?: AskQuestionOption[];
+  multiSelect?: boolean;
+}
+// Recebe as perguntas geradas pelo Claude, devolve { [texto da pergunta]: label(s) }.
+export type QuestionFn = (questions: AskQuestionItem[]) => Promise<Record<string, string>>;
+
 export interface MainAgentParams {
   model: string;
   cwd: string;
   effort?: string;
   onApproval?: ApprovalFn;
+  onQuestion?: QuestionFn;
 }
 
 // Monta as `options` do query() do agente principal (tudo menos o prompt/queue — isso é
 // transporte). Recebe o onApproval (callback que pergunta ao browser) por injeção.
 // O scaffolding comum (preset, permissionMode, stream) vem de buildAgentOptions.
-export function buildMainAgentOptions({ model, cwd, effort, onApproval }: MainAgentParams) {
+export function buildMainAgentOptions({ model, cwd, effort, onApproval, onQuestion }: MainAgentParams) {
   return buildAgentOptions({
     model,
     cwd,
@@ -55,11 +67,21 @@ export function buildMainAgentOptions({ model, cwd, effort, onApproval }: MainAg
     mcpServers: { consultor: consultorServer },
     // subagentes especialistas (read-only) que o agente principal invoca via Agent
     agents: subagents,
-    // leitura + delegação pré-aprovadas; escrita/exec caem no canUseTool (default mode)
-    allowedTools: ['Read', 'Glob', 'Grep', 'TodoWrite', 'Agent', 'Task', 'AskQuestion', CONSULTOR_TOOL],
+    // leitura + delegação pré-aprovadas; escrita/exec caem no canUseTool (default mode).
+    // AskUserQuestion NÃO entra aqui de propósito: o guard a marca como 'ask' p/ cair no
+    // canUseTool, onde a pergunta é resolvida (user-input.md). Pré-aprovar pularia isso.
+    allowedTools: ['Read', 'Glob', 'Grep', 'TodoWrite', 'Agent', 'Task', CONSULTOR_TOOL],
     // guard veta o destrutivo e encaminha mutações ao canUseTool (askOnMutate)
     hooks: createGuardedHooks(cwd, { askOnMutate: true }),
     canUseTool: async (toolName, input) => {
+      // Perguntas de esclarecimento: o SDK resolve AskUserQuestion AQUI, não no stream.
+      // Transmitimos as questions ao browser, esperamos a resposta e devolvemos
+      // updatedInput com { questions, answers } — formato exigido pela tool.
+      if (toolName === 'AskUserQuestion' && onQuestion) {
+        const questions = (input as { questions?: AskQuestionItem[] }).questions ?? [];
+        const answers = await onQuestion(questions);
+        return { behavior: 'allow', updatedInput: { ...input, answers } };
+      }
       if (!NEEDS_APPROVAL.has(toolName) || !onApproval) {
         return { behavior: 'allow', updatedInput: input };
       }

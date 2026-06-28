@@ -59,8 +59,9 @@ export interface WSApprovalMessage {
 export interface WSQuestionAnswerMessage {
   type: "question_answer";
   chatId: string;
-  toolUseId: string;
-  answer: string;
+  id: string;
+  // { [texto da pergunta]: label(s) escolhido(s) } — formato do AskUserQuestion
+  answers: Record<string, string>;
 }
 
 // Comandos que falam com o backend.

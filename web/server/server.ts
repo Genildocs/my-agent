@@ -335,7 +335,7 @@ wss.on("connection", (ws: WSClient) => {
 
         case "question_answer": {
           const session = sessions.get(message.chatId);
-          if (session) session.respondQuestion(message.toolUseId, message.answer);
+          if (session) session.respondQuestion(message.id, message.answers);
           break;
         }
 

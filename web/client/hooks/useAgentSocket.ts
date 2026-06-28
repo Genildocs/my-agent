@@ -215,9 +215,9 @@ export function useAgentSocket(opts: UseAgentSocketOpts) {
           {
             id: crypto.randomUUID(),
             role: "question",
-            content: message.question,
+            content: "",
             timestamp: new Date().toISOString(),
-            toolInput: { toolUseId: message.toolUseId, question: message.question, options: message.options },
+            toolInput: { id: message.id, questions: message.questions },
           },
         ]);
         break;
@@ -289,16 +289,16 @@ export function useAgentSocket(opts: UseAgentSocketOpts) {
     }
   }, [lastJsonMessage, handleWSMessage]);
 
-  const respondQuestion = useCallback((toolUseId: string, answer: string) => {
+  const respondQuestion = useCallback((id: string, answers: Record<string, string>) => {
     if (!chatId) return;
     setMessages((prev) =>
       prev.map((m) =>
-        m.toolInput?.toolUseId === toolUseId
-          ? { ...m, answered: true, toolInput: { ...m.toolInput, answer } }
+        m.toolInput?.id === id
+          ? { ...m, answered: true, toolInput: { ...m.toolInput, answers } }
           : m
       )
     );
-    sendJsonMessage({ type: "question_answer", chatId, toolUseId, answer });
+    sendJsonMessage({ type: "question_answer", chatId, id, answers });
   }, [chatId, sendJsonMessage]);
 
   const respondApproval = useCallback((approved: boolean) => {
