@@ -14,5 +14,11 @@ data/
 # identidade do recall (contém email/nome — não versionar)
 .recall/
 
+# estado local de ferramentas (config/histórico de sessão — podem ter PII)
+.claude/
+.remember/
+
 # docs de terceiros (Anthropic) — não redistribuir
 sources/
+# fontes extras locais (ex: sources-leonardo) — não versionar
+sources-*/
