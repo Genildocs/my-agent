@@ -6,11 +6,14 @@
     "typecheck": "tsc -p tsconfig.json && tsc -p web/client/tsconfig.json",
     "web": "concurrently -n server,client -c green,cyan \"npm:web:server\" \"npm:web:client\"",
     "web:server": "tsx --env-file=.env web/server/server.ts",
-    "web:client": "cd web && vite"
+    "web:client": "cd web && vite",
+    "tui": "bun tui/index.tsx"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.158",
     "@neondatabase/serverless": "^1.1.0",
+    "@opentui/core": "^0.4.2",
+    "@opentui/solid": "^0.4.2",
     "better-sqlite3": "^12.10.0",
     "cors": "^2.8.6",
     "express": "^4.22.2",
@@ -22,6 +25,7 @@
     "react-use-websocket": "^4.13.0",
     "remark-gfm": "^4.0.1",
     "shiki": "^4.1.0",
+    "solid-js": "^1.9.13",
     "sonner": "^2.0.7",
     "uuid": "^10.0.0",
     "ws": "^8.21.0",
