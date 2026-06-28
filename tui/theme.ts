@@ -15,6 +15,7 @@ export type Palette = {
   text: string
   accent: string
   bg: string
+  surface: string // fundo de cards/dialogs/toasts (um degrau acima do bg)
 }
 
 // Temas: cada um é uma paleta completa. "dark" é o default.
@@ -32,6 +33,7 @@ export const THEMES: Record<string, Palette> = {
     text: "#dddddd",
     accent: "#fbbf24",
     bg: "#0d0f14",
+    surface: "#16181d",
   },
   light: {
     user: "#0369a1",
@@ -46,6 +48,7 @@ export const THEMES: Record<string, Palette> = {
     text: "#1a1a1a",
     accent: "#b45309",
     bg: "#fafafa",
+    surface: "#ececec",
   },
   nord: {
     user: "#88c0d0",
@@ -60,6 +63,7 @@ export const THEMES: Record<string, Palette> = {
     text: "#e5e9f0",
     accent: "#ebcb8b",
     bg: "#2e3440",
+    surface: "#3b4252",
   },
   dracula: {
     user: "#8be9fd",
@@ -74,6 +78,7 @@ export const THEMES: Record<string, Palette> = {
     text: "#f8f8f2",
     accent: "#ffb86c",
     bg: "#282a36",
+    surface: "#343746",
   },
 }
 

@@ -99,7 +99,7 @@ export function DialogSelect(props: {
         width={width()}
         borderStyle="rounded"
         borderColor={COLOR.accent}
-        backgroundColor="#16181d"
+        backgroundColor={COLOR.surface}
         padding={1}
         gap={1}
       >

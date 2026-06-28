@@ -6,17 +6,9 @@ import type { UIMessage } from "../createWsClient"
 import { COLOR, syntaxStyle, THEMES, setTheme, themeName } from "../theme"
 import { DialogSelect, type SelectOption } from "../components/DialogSelect"
 import { MODELS, EFFORTS, modelLabel, effortLabel } from "../data"
+import { getConfig, updateConfig } from "../config"
 
 type DialogKind = null | "model" | "effort" | "theme" | "commands"
-
-const ROLE_COLOR: Record<string, string> = {
-  user: COLOR.user,
-  assistant: COLOR.assistant,
-  thinking: COLOR.thinking,
-  tool: COLOR.tool,
-  tester: COLOR.tester,
-  system: COLOR.system,
-}
 
 const ROLE_LABEL: Record<string, string> = {
   user: "You",
@@ -30,7 +22,9 @@ const ROLE_LABEL: Record<string, string> = {
 const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 
 function MessageItem(props: { msg: UIMessage; spinner: string }) {
-  const color = () => ROLE_COLOR[props.msg.role] ?? "#ccc"
+  // Lê COLOR direto (store reativo): trocar o tema recolore os labels ao vivo.
+  // As chaves da Palette batem com os roles (user/assistant/thinking/tool/tester/system).
+  const color = () => COLOR[props.msg.role as keyof typeof COLOR] ?? COLOR.text
   const label = () => ROLE_LABEL[props.msg.role] ?? props.msg.role
   // Markdown (com highlight) só pro agente; demais papéis em texto plano.
   const isMarkdown = () => props.msg.role === "assistant" || props.msg.role === "tester"
@@ -63,57 +57,148 @@ function MessageItem(props: { msg: UIMessage; spinner: string }) {
   )
 }
 
+// Verbo de ação por tool — o header diz O QUE será feito, não só "aprovar".
+const APPROVAL_VERB: Record<string, string> = {
+  Bash: "Executar comando",
+  Write: "Escrever arquivo",
+  Edit: "Editar arquivo",
+  MultiEdit: "Editar arquivo",
+  Read: "Ler arquivo",
+  Glob: "Buscar arquivos",
+  Grep: "Buscar no código",
+  WebFetch: "Buscar URL",
+}
+const APPROVAL_MAX = 8 // linhas de preview de conteúdo antes de truncar
+const DIFF_MAX = 5 // linhas por lado do diff (− / +) antes de truncar
+
 function ApprovalCard(props: {
   approval: { id: string; tool: string; input: any }
   onRespond: (id: string, approved: boolean) => void
   onAlways: (id: string, tool: string) => void
 }) {
+  const dims = useTerminalDimensions()
+
   useKeyboard((k) => {
     if (k.name === "y" || k.name === "return") props.onRespond(props.approval.id, true)
     else if (k.name === "n" || k.name === "escape") props.onRespond(props.approval.id, false)
     else if (k.name === "a") props.onAlways(props.approval.id, props.approval.tool)
   })
 
-  // Mostra o que importa por tool: Bash -> o comando; Write/Edit -> o arquivo; resto -> resumo.
-  const detail = () => {
-    const i = props.approval.input ?? {}
-    if (props.approval.tool === "Bash") return String(i.command ?? "")
-    if (i.file_path) return String(i.file_path)
-    try {
-      const s = JSON.stringify(i)
-      return s.length > 160 ? s.slice(0, 157) + "..." : s
-    } catch {
-      return String(i)
-    }
-  }
+  const tool = () => props.approval.tool
+  const input = () => props.approval.input ?? {}
+  const verb = () => APPROVAL_VERB[tool()] ?? `Usar ${tool()}`
 
-  const lines = () => detail().split("\n").slice(0, 6)
+  const isFile = () => tool() === "Write" || tool() === "Edit" || tool() === "MultiEdit"
+  const isEdit = () => tool() === "Edit" || tool() === "MultiEdit"
+  const isKnown = () => isFile() || tool() === "Bash"
+
+  // trunca uma linha à largura interna do card (estilo editor, sem wrap)
+  const trunc = (s: string) => {
+    const max = Math.max(16, dims().width - 6)
+    return s.length > max ? s.slice(0, max - 1) + "…" : s
+  }
+  const linesOf = (v: unknown) => String(v ?? "").split("\n")
+  const editOld = () => linesOf(input().old_string)
+  const editNew = () => linesOf(input().new_string)
+  const writeLines = () => linesOf(input().content)
+
+  // tools desconhecidas: args como "chave: valor"
+  const argLines = () =>
+    Object.entries(input()).map(
+      ([k, v]) => `${k}: ${typeof v === "string" ? v : JSON.stringify(v)}`,
+    )
 
   return (
     <box
       flexDirection="column"
       borderStyle="rounded"
       borderColor={COLOR.accent}
-      backgroundColor="#16181d"
+      backgroundColor={COLOR.surface}
       paddingX={1}
       marginX={1}
       gap={0}
     >
+      {/* Cabeçalho: verbo de ação + nome da tool à direita */}
       <box flexDirection="row" gap={1}>
         <text fg={COLOR.accent}>
-          <b>⚠ Aprovar</b>
+          <b>⚠ {verb()}</b>
         </text>
-        <text fg={COLOR.text}>
-          <b>{props.approval.tool}</b>
-        </text>
+        <box flexGrow={1} />
+        <text fg={COLOR.dim}>{tool()}</text>
       </box>
-      <For each={lines()}>
-        {(ln) => (
-          <text fg={COLOR.dim} wrapMode="none">
-            {"  " + ln}
+
+      {/* Bash: o comando inteiro, com quebra de linha (vê tudo) */}
+      <Show when={tool() === "Bash"}>
+        <box marginTop={1}>
+          <text fg={COLOR.text} wrapMode="word">
+            {String(input().command ?? "")}
           </text>
-        )}
-      </For>
+        </box>
+      </Show>
+
+      {/* Write/Edit: caminho do arquivo em destaque */}
+      <Show when={isFile()}>
+        <box marginTop={1}>
+          <text fg={COLOR.user}>{trunc(String(input().file_path ?? ""))}</text>
+        </box>
+      </Show>
+
+      {/* Edit: mini-diff (− removido / + adicionado) */}
+      <Show when={isEdit()}>
+        <box flexDirection="column">
+          <For each={editOld().slice(0, DIFF_MAX)}>
+            {(ln) => (
+              <text fg={COLOR.system} wrapMode="none">
+                {trunc("- " + ln)}
+              </text>
+            )}
+          </For>
+          <Show when={editOld().length > DIFF_MAX}>
+            <text fg={COLOR.muted}>  … +{editOld().length - DIFF_MAX}</text>
+          </Show>
+          <For each={editNew().slice(0, DIFF_MAX)}>
+            {(ln) => (
+              <text fg={COLOR.assistant} wrapMode="none">
+                {trunc("+ " + ln)}
+              </text>
+            )}
+          </For>
+          <Show when={editNew().length > DIFF_MAX}>
+            <text fg={COLOR.muted}>  … +{editNew().length - DIFF_MAX}</text>
+          </Show>
+        </box>
+      </Show>
+
+      {/* Write: preview do conteúdo a ser gravado */}
+      <Show when={tool() === "Write"}>
+        <box flexDirection="column">
+          <For each={writeLines().slice(0, APPROVAL_MAX)}>
+            {(ln) => (
+              <text fg={COLOR.dim} wrapMode="none">
+                {trunc("  " + ln)}
+              </text>
+            )}
+          </For>
+          <Show when={writeLines().length > APPROVAL_MAX}>
+            <text fg={COLOR.muted}>  … +{writeLines().length - APPROVAL_MAX} linhas</text>
+          </Show>
+        </box>
+      </Show>
+
+      {/* Tools desconhecidas: args como chave: valor */}
+      <Show when={!isKnown()}>
+        <box flexDirection="column" marginTop={1}>
+          <For each={argLines().slice(0, APPROVAL_MAX)}>
+            {(ln) => (
+              <text fg={COLOR.dim} wrapMode="none">
+                {trunc(ln)}
+              </text>
+            )}
+          </For>
+        </box>
+      </Show>
+
+      {/* Ações */}
       <box flexDirection="row" gap={2} marginTop={1}>
         <text fg={COLOR.assistant}>
           <b>Y</b> aprovar
@@ -122,8 +207,10 @@ function ApprovalCard(props: {
           <b>N</b> recusar
         </text>
         <text fg={COLOR.tool}>
-          <b>A</b> sempre esta tool
+          <b>A</b> sempre
         </text>
+        <box flexGrow={1} />
+        <text fg={COLOR.dim}>↵ sim · esc não</text>
       </box>
     </box>
   )
@@ -160,7 +247,7 @@ function AskCard(props: {
       flexDirection="column"
       borderStyle="rounded"
       borderColor={COLOR.accent}
-      backgroundColor="#16181d"
+      backgroundColor={COLOR.surface}
       paddingX={1}
       marginX={1}
       gap={0}
@@ -212,7 +299,7 @@ function Toast(props: { toast: { text: string; variant: "info" | "success" | "er
       zIndex={4000}
       borderStyle="rounded"
       borderColor={color()}
-      backgroundColor="#16181d"
+      backgroundColor={COLOR.surface}
       paddingX={1}
     >
       <text fg={color()}>{props.toast.text}</text>
@@ -239,8 +326,14 @@ export function ChatScreen(props: { chatId: string; cwd: string; onBack: () => v
   const [inputFocused, setInputFocused] = createSignal(true)
 
   // Modelo/effort do chat (enviados em cada mensagem; backend recria a sessão ao trocar).
-  const [model, setModel] = createSignal("claude-sonnet-4-6")
-  const [effort, setEffort] = createSignal("")
+  // Inicializa do config salvo, validando contra MODELS/EFFORTS (ignora valor obsoleto).
+  const cfg = getConfig()
+  const [model, setModel] = createSignal(
+    MODELS.some((m) => m.value === cfg.model) ? cfg.model! : "claude-sonnet-4-6",
+  )
+  const [effort, setEffort] = createSignal(
+    EFFORTS.some((e) => e.value === cfg.effort) ? cfg.effort! : "",
+  )
 
   // Dialog ativo (model/effort/theme/commands) — null = nenhum.
   const [dialog, setDialog] = createSignal<DialogKind>(null)
@@ -261,11 +354,15 @@ export function ChatScreen(props: { chatId: string; cwd: string; onBack: () => v
   let sent: string[] = []
   let histIdx = -1
 
-  // Foco imperativo no input. Solta o foco quando há card pendente OU dialog aberto.
+  // Foco imperativo no input. No OpenTUI o foco é imperativo: mudar só o prop
+  // `focused` não desfoca — sem blur() o input nativo continua capturando teclas
+  // (era por isso que o "y" de aprovar vazava e ficava no input). Então damos
+  // blur() ao bloquear (approval/question/dialog) e refocamos ao liberar.
   createEffect(() => {
     const blocked = store.pendingApproval || store.pendingQuestion || dialog()
     setInputFocused(!blocked)
-    if (!blocked && input && !input.focused) input.focus()
+    if (blocked) input?.blur()
+    else if (input && !input.focused) input.focus()
   })
 
   const recall = (dir: -1 | 1) => {
@@ -531,6 +628,7 @@ export function ChatScreen(props: { chatId: string; cwd: string; onBack: () => v
           options={modelOpts()}
           onSelect={(v) => {
             setModel(v)
+            updateConfig({ model: v })
             setDialog(null)
             showToast(`Modelo: ${modelLabel(v)}`, "success")
           }}
@@ -544,6 +642,7 @@ export function ChatScreen(props: { chatId: string; cwd: string; onBack: () => v
           options={effortOpts()}
           onSelect={(v) => {
             setEffort(v)
+            updateConfig({ effort: v })
             setDialog(null)
             showToast(`Effort: ${effortLabel(v)}`, "success")
           }}
@@ -558,6 +657,7 @@ export function ChatScreen(props: { chatId: string; cwd: string; onBack: () => v
           onMove={(v) => setTheme(v)}
           onSelect={(v) => {
             setTheme(v)
+            updateConfig({ theme: v })
             setDialog(null)
             showToast(`Tema: ${v}`, "success")
           }}

@@ -1,5 +1,6 @@
 import { createSignal, onMount, For, Show } from "solid-js"
 import { useKeyboard, useRenderer } from "@opentui/solid"
+import { COLOR } from "../theme"
 
 const BASE = "http://localhost:3001"
 
@@ -52,37 +53,37 @@ export function ChatListScreen(props: { onSelect: (id: string) => void }) {
 
   return (
     <box flexDirection="column" flexGrow={1} padding={2} gap={1}>
-      <text fg="#7dd3fc">
+      <text fg={COLOR.user}>
         <b>my-agent TUI</b>
       </text>
-      <text fg="#888">↑↓ / jk  navegar   Enter  abrir   N  novo   ESC  sair</text>
+      <text fg={COLOR.muted}>↑↓ / jk  navegar   Enter  abrir   N  novo   ESC  sair</text>
 
       <box flexDirection="column" marginTop={1} gap={0}>
         <Show when={loading()}>
-          <text fg="#aaa">Carregando chats...</text>
+          <text fg={COLOR.muted}>Carregando chats...</text>
         </Show>
 
         <Show when={error()}>
-          <text fg="#f87171">{error()}</text>
+          <text fg={COLOR.system}>{error()}</text>
         </Show>
 
         <Show when={!loading()}>
           <For each={chats()}>
             {(chat, i) => (
               <box flexDirection="row" gap={1}>
-                <text fg={i() === idx() ? "#86efac" : "#ccc"}>
+                <text fg={i() === idx() ? COLOR.assistant : COLOR.text}>
                   <Show when={i() === idx()} fallback={`  ${chat.title || "Chat sem título"}`}>
                     <b>▸ {chat.title || "Chat sem título"}</b>
                   </Show>
                 </text>
                 <Show when={chat.cwd}>
-                  <text fg="#666">{chat.cwd}</text>
+                  <text fg={COLOR.dim}>{chat.cwd}</text>
                 </Show>
               </box>
             )}
           </For>
 
-          <text fg={idx() === chats().length ? "#86efac" : "#999"}>
+          <text fg={idx() === chats().length ? COLOR.assistant : COLOR.muted}>
             <Show when={idx() === chats().length} fallback="  + Novo chat">
               <b>▸ + Novo chat</b>
             </Show>

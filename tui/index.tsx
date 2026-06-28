@@ -4,6 +4,12 @@ import { render } from "@opentui/solid"
 import { createCliRenderer } from "@opentui/core"
 import { App } from "./App"
 import { ensureServer } from "./server-bootstrap"
+import { setTheme } from "./theme"
+import { getConfig } from "./config"
+
+// Aplica o tema salvo antes do primeiro render (setTheme ignora nome inválido).
+const savedTheme = getConfig().theme
+if (savedTheme) setTheme(savedTheme)
 
 // Diretório onde o AGENTE vai operar. Vem de argv[2] (o launcher global passa o
 // $PWD de onde você chamou) ou do process.cwd(). O backend revalida e recusa
