@@ -20,6 +20,8 @@ export type PendingQuestion = {
   }>
 }
 
+export type Toast = { id: string; text: string; variant: "info" | "success" | "error" }
+
 type WsStore = {
   messages: UIMessage[]
   status: "idle" | "streaming" | "thinking"
@@ -27,6 +29,7 @@ type WsStore = {
   pendingApproval: PendingApproval | null
   pendingQuestion: PendingQuestion | null
   connected: boolean
+  toast: Toast | null
 }
 
 export function createWsClient(chatId: string) {
@@ -37,12 +40,20 @@ export function createWsClient(chatId: string) {
     pendingApproval: null,
     pendingQuestion: null,
     connected: false,
+    toast: null,
   })
 
   let ws: WebSocket
 
   const send = (msg: any) => {
     if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg))
+  }
+
+  let toastTimer: ReturnType<typeof setTimeout> | undefined
+  const showToast = (text: string, variant: Toast["variant"] = "info") => {
+    setStore("toast", { id: String(Date.now()), text, variant })
+    clearTimeout(toastTimer)
+    toastTimer = setTimeout(() => setStore("toast", null), 4000)
   }
 
   const handleMsg = (msg: any) => {
@@ -152,13 +163,11 @@ export function createWsClient(chatId: string) {
             streaming: false,
           })
         }))
+        showToast(msg.error, "error")
         break
 
       case "notice":
-        setStore("messages", (msgs) => [
-          ...msgs,
-          { id: String(Date.now()), role: "system", content: `[${msg.level}] ${msg.text}`, streaming: false },
-        ])
+        showToast(msg.text, msg.level === "success" ? "success" : "info")
         break
 
       case "tester_start":
@@ -200,15 +209,29 @@ export function createWsClient(chatId: string) {
 
   onCleanup(() => ws.close())
 
-  const sendMessage = (content: string, cwd?: string) => {
+  const sendMessage = (
+    content: string,
+    opts?: { cwd?: string; model?: string; effort?: string },
+  ) => {
     setStore("messages", (msgs) => [
       ...msgs,
       { id: String(Date.now()), role: "user", content, streaming: false },
     ])
-    send({ type: "chat", chatId, content, cwd })
+    send({
+      type: "chat",
+      chatId,
+      content,
+      cwd: opts?.cwd,
+      model: opts?.model,
+      // effort "" (Padrão) é omitido para o backend usar o default do SDK
+      effort: opts?.effort || undefined,
+    })
   }
 
   const stopAgent = () => send({ type: "stop", chatId })
+
+  const sendCommand = (name: "compact" | "test", args?: string, cwd?: string) =>
+    send({ type: "command", chatId, name, args, cwd })
 
   const respondApproval = (id: string, approved: boolean) => {
     send({ type: "approval", chatId, id, approved })
@@ -220,5 +243,5 @@ export function createWsClient(chatId: string) {
     setStore("pendingQuestion", null)
   }
 
-  return { store, sendMessage, stopAgent, respondApproval, respondQuestion }
+  return { store, sendMessage, stopAgent, sendCommand, respondApproval, respondQuestion, showToast }
 }
